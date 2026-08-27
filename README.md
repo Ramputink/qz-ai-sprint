@@ -103,23 +103,53 @@ Objetivo: accuracy ≥90 %, aviso ≥10 días, FN penalizados 5×. Validación *
 | `metropt3` | 1 | 0,8514 | 121 | 9 | 21,29 d | 21,29 d |
 | `nasa_ims_bearing` | 2 | 0,7732 | 16 | 326 | **3,68 d** | 0,09 d |
 
-**Aviso sobre la fila de IMS: esa cifra no es reproducible.** Con solo 12 rodamientos,
-la validación son 2 unidades. Repitiendo el mismo entrenamiento cambiando únicamente qué
-2 rodamientos se reservan:
+**Aviso sobre la fila de IMS: esa cifra no es reproducible, y el problema es de datos.**
 
-| Semilla | Unidades val | Accuracy | FN | FP | Aviso medio |
-|---|---|---|---|---|---|
-| 20260827 | [2, 7] | 0,7732 | 16 | 326 | 3,66 d |
-| 7 | [4, 6] | *no evaluable* | — | — | — |
-| 42 | [0, 7] | 0,7732 | 16 | 326 | 3,64 d |
-| 1234 | [0, 9] | 0,4552 | 0 | 1765 | 11,13 d |
-| 99 | [8, 10] | 0,3379 | 2 | 2902 | 7,64 d |
+Con 12 rodamientos, reservar el 20 % deja 2 de validación y el resultado depende del sorteo:
+repitiendo el mismo entrenamiento cambiando solo la semilla, la accuracy iba de **0,338 a
+0,773**, y un sorteo ni siquiera era evaluable. Por eso se añadió `--cross-validate`, que
+entrena un modelo por máquina y reporta la distribución en vez de un número.
 
-Accuracy entre **0,338 y 0,773**; aviso entre 3,6 y 11,1 días. El split de la semilla 7 ni
-siquiera se puede evaluar: si los 2 rodamientos reservados salen del 2º ensayo (6,8 días en
-total), el horizonte de 10 días no tiene clase negativa. **En IMS no hay un resultado, hay
-ruido**: el problema no es el modelo, es que 12 rodamientos con 4 fallos no bastan para medir
-nada. Cualquier cifra de IMS de este repositorio debe leerse así.
+Se probaron las tres mejoras de dominio (28-08-2026): **análisis de envolvente** en las
+frecuencias de defecto del rodamiento (BPFO 236,4 / BPFI 296,9 / BSF 139,9 / FTF 14,8 Hz,
+calculadas de la geometría Rexnord ZA-2115 a 2000 RPM que documenta el propio dataset),
+**media horaria con 72 h de contexto** en vez de instantáneas de 10 min con 10,7 h, y el
+**flag de qué rodamiento rompió** de verdad.
+
+Leave-one-bearing-out, 12 pliegues, mismas ventanas:
+
+| | Sin envolvente | Con envolvente |
+|---|---|---|
+| Pliegues evaluables | 8/12 | 8/12 |
+| Accuracy mediana | 0,847 | 0,833 |
+| Cumplen ≥0,90 | 3/8 | 3/8 |
+| Aviso mediana | 10,33 d | 10,04 d |
+| Cumplen ≥10 d | 5/8 | 6/8 |
+
+**La envolvente no mejora la mediana**, pero el desglose importa: en el 1er ensayo (fallo de
+pista interna y elemento rodante) el rodamiento que rompió pasa de avisar con **1,5 días a
+10,2**; en el 3º (pista externa, 741 h de degradación lenta) empeora. Capta la firma de
+impacto localizado y no la degradación gradual. No es una mejora general: **ayuda en un modo
+de fallo y estorba en otro.**
+
+Y hay una fuga que el leave-one-bearing-out no elimina: los 4 rodamientos de un banco
+comparten eje, carga e instante de fallo, y la vibración se transmite por la carcasa. Al
+reservar uno solo, los otros tres están en entrenamiento enseñando cuándo para el ensayo.
+Reservando el **banco entero** (`--cv-group test`), sin fuga:
+
+| Banco reservado | Accuracy | FN | FP | Aviso |
+|---|---|---|---|---|
+| 1er ensayo (2 rotos) | 0,8264 | 12 | 188 | 9,43 d |
+| 2º ensayo (1 roto) | *no evaluable* | — | — | — |
+| 3er ensayo (1 roto) | 0,3993 | 1 | 1609 | 22,4 d |
+| **Mediana** | **0,613** | | | 15,91 d |
+
+**0 de 2 pliegues alcanzan el 90 %.** Ésta es la cifra honesta de IMS, y no se arregla con
+más features: el 2º ensayo dura 164 h y el objetivo pide avisar con 240, así que la pregunta
+ni se puede formular sobre él; y quedan 2 bancos independientes para estimar todo. Lo que
+falta no son gigabytes, son **eventos de fallo**: aquí hay 4.
+
+Reproducir: `python run.py --cross-validate nasa_ims_bearing --cv-group test`
 
 ### Qué hay que leer de estos números
 

@@ -31,6 +31,8 @@ from typing import Any, Callable
 
 import numpy as np
 
+from .features import bearing_fault_freqs
+
 ProgressCB = Callable[[str, float, str], None]
 
 WINDOW_DEFAULT = 32          # longitud de ventana temporal (pasos)
@@ -43,7 +45,7 @@ RUL_CAP_DEFAULT = 130.0      # techo de RUL: al principio de la vida "queda much
 HOURS_PER_UNIT = {
     "cmapss": 24.0,            # 1 ciclo de vuelo, tratado como 1 dia de operacion (supuesto)
     "ncmapss": 24.0,           # idem
-    "nasa_ims_bearing": 1 / 6,   # 1 instantanea cada 10 min (medido)
+    "nasa_ims_bearing": 1.0,     # instantaneas de 10 min promediadas a 1 hora
     "metropt3": 1.0,           # remuestreado a 1 hora (medido)
 }
 
@@ -52,13 +54,27 @@ HOURS_PER_UNIT = {
 _TUNING = {
     "cmapss":           {"window": 32, "stride": 1},    # ~1 mes de vuelos
     "ncmapss":          {"window": 32, "stride": 1},
-    "nasa_ims_bearing": {"window": 64, "stride": 2},    # ~10,7 h de contexto
+    # 72 h de contexto: la degradacion de un rodamiento se ve en dias, no en horas.
+    # Mas no cabe: el 2o ensayo dura 164 h en total.
+    "nasa_ims_bearing": {"window": 72, "stride": 1},
     "metropt3":         {"window": 48, "stride": 2},    # 2 dias de contexto
 }
 
 # Techo de RUL = 4x el horizonte de aviso. Predecir mas alla no aporta: lo que decide
 # el exito es acertar la ventana de los ultimos `lead_time_days` dias.
 _RUL_CAP_FACTOR = 4.0
+
+# Instantaneas IMS por hora (una cada 10 min).
+IMS_SNAPSHOTS_PER_HOUR = 6
+
+
+def _aggregate(traj: np.ndarray, factor: int) -> np.ndarray:
+    """Promedia bloques consecutivos de `factor` pasos. Descarta el resto final
+    incompleto para no inventar un ultimo punto con menos muestras que el resto."""
+    if factor <= 1 or traj.shape[0] < factor:
+        return traj
+    n = (traj.shape[0] // factor) * factor
+    return traj[:n].reshape(-1, factor, traj.shape[1]).mean(axis=1)
 
 
 def lead_horizon_units(key: str, lead_time_days: float) -> float:
@@ -97,6 +113,76 @@ def vibration_features(sig: np.ndarray, n_bands: int = _N_BANDS) -> np.ndarray:
                      peak / rms, rms / mean_abs, peak / mean_abs,
                      peak / sqrt_mean, entropy], dtype=np.float64)
     return np.concatenate([base, bands]).astype(np.float32)
+
+
+# --- features de frecuencia de defecto (analisis de envolvente) --------------
+#
+# Geometria del rodamiento del banco IMS (Rexnord ZA-2115, doble hilera) y su regimen,
+# tomados del readme del propio dataset. Con esto se calculan BPFO/BPFI/BSF/FTF.
+IMS_BEARING = {"n_balls": 16, "ball_dia": 0.331, "pitch_dia": 2.815,
+               "contact_angle_deg": 15.17}
+IMS_RPM = 2000.0
+IMS_FS = 20000.0
+
+_HARMONICS = 3
+_DEFECTS = ("BPFO", "BPFI", "BSF", "FTF")
+
+
+def envelope_defect_features(sig: np.ndarray, fs: float, defect_freqs: dict[str, float],
+                             n_harmonics: int = _HARMONICS,
+                             band: tuple[float, float] = (2000.0, 9500.0)) -> np.ndarray:
+    """Energia en las frecuencias de defecto del rodamiento, via envolvente.
+
+    Es LA tecnica de diagnostico de rodamientos, y explica por que la curtosis sola
+    se queda corta: un defecto en la pista externa no cambia mucho la forma global de
+    la senal, pero hace que el rodamiento golpee a BPFO Hz exactos. Ese golpeteo
+    excita las resonancias de alta frecuencia de la carcasa; se filtra esa banda, se
+    toma la envolvente (Hilbert) y en SU espectro aparece un pico limpio a BPFO.
+
+    Devuelve, por cada frecuencia caracteristica y armonico, la altura del pico
+    dividida por el suelo de ruido del espectro de envolvente: una relacion
+    senal/ruido comparable entre instantaneas y entre rodamientos.
+    """
+    from scipy.signal import butter, hilbert, sosfiltfilt
+
+    x = np.asarray(sig, dtype=np.float64).ravel()
+    n_feat = len(defect_freqs) * n_harmonics + 1
+    if x.size < 256:
+        return np.zeros(n_feat, dtype=np.float32)
+    x = x - x.mean()
+
+    hi = min(band[1], 0.98 * fs / 2)
+    if band[0] >= hi:
+        return np.zeros(n_feat, dtype=np.float32)
+    try:
+        sos = butter(4, [band[0], hi], btype="band", fs=fs, output="sos")
+        env = np.abs(hilbert(sosfiltfilt(sos, x)))
+    except Exception:
+        return np.zeros(n_feat, dtype=np.float32)
+
+    env = env - env.mean()
+    spec = np.abs(np.fft.rfft(env * np.hanning(env.size)))
+    freqs = np.fft.rfftfreq(env.size, d=1.0 / fs)
+    floor = float(np.median(spec)) or 1e-12
+    df = float(freqs[1] - freqs[0]) if freqs.size > 1 else 1.0
+
+    out = []
+    for name in _DEFECTS:
+        f0 = defect_freqs.get(name, 0.0)
+        for h in range(1, n_harmonics + 1):
+            fh = f0 * h
+            # ventana de +-3 bins: el regimen no es perfectamente constante y el pico
+            # se desplaza un poco entre instantaneas
+            lo_i = int(max(0, (fh - 3 * df) / df))
+            hi_i = int(min(spec.size - 1, (fh + 3 * df) / df))
+            peak = float(spec[lo_i:hi_i + 1].max()) if hi_i >= lo_i else 0.0
+            out.append(peak / floor)
+    out.append(float(np.sqrt(np.mean(env ** 2))))       # nivel global de la envolvente
+    return np.asarray(out, dtype=np.float32)
+
+
+def envelope_feature_names(n_harmonics: int = _HARMONICS) -> list[str]:
+    return [f"{d}_h{h}" for d in _DEFECTS for h in range(1, n_harmonics + 1)] + ["env_rms"]
 
 
 def feature_names(n_channels: int = 1, n_bands: int = _N_BANDS) -> list[str]:
@@ -273,7 +359,7 @@ def _ims_snapshot(path: Path) -> np.ndarray | None:
 
 
 def prep_ims(raw: Path, out: Path, cb: ProgressCB, window: int, stride: int,
-             rul_cap: float) -> dict[str, Any]:
+             rul_cap: float, only_failed: bool = False) -> dict[str, Any]:
     """IMS (NASA/Univ. Cincinnati): rodamientos hasta rotura, ASCII a 20 kHz.
 
     Un fichero = 1 s de vibracion cada 10 min. La secuencia de instantaneas ES la
@@ -321,6 +407,8 @@ def prep_ims(raw: Path, out: Path, cb: ProgressCB, window: int, stride: int,
         rows: list[np.ndarray | None] = [None] * len(snaps)
         done = 0
 
+        defects = bearing_fault_freqs(rpm=IMS_RPM, **IMS_BEARING)
+
         def work(i_sp):
             i, sp = i_sp
             sig = _ims_snapshot(sp)
@@ -328,7 +416,12 @@ def prep_ims(raw: Path, out: Path, cb: ProgressCB, window: int, stride: int,
                 return i, None
             n_bear = 4
             step = sig.shape[1] // n_bear or 1     # 2 canales/rodamiento en el 1er ensayo
-            per = [vibration_features(sig[:, b * step]) for b in range(n_bear)]
+            per = []
+            for b in range(n_bear):
+                ch = sig[:, b * step]
+                per.append(np.concatenate([
+                    vibration_features(ch),
+                    envelope_defect_features(ch, IMS_FS, defects)]))
             return i, per
 
         with ThreadPoolExecutor(max_workers=8) as ex:
@@ -344,24 +437,44 @@ def prep_ims(raw: Path, out: Path, cb: ProgressCB, window: int, stride: int,
             continue
         failed = _IMS_FAILED.get(test_name(td), ())
         for b in range(4):
-            trajs[unit_id] = np.stack([g[b] for g in good]).astype(np.float32)
+            traj = np.stack([g[b] for g in good]).astype(np.float32)
+            # Agregacion a 1 hora (6 instantaneas de 10 min). El objetivo es avisar con
+            # >=10 dias: a esa escala la resolucion de 10 min solo aporta ruido, y con
+            # ella una ventana de contexto asumible no llega ni a medio dia.
+            traj = _aggregate(traj, IMS_SNAPSHOTS_PER_HOUR)
+            trajs[unit_id] = traj
             unit_meta.append({"unit": unit_id, "test": test_name(td), "bearing": b + 1,
-                              "failed": b in failed, "snapshots": len(good)})
+                              "failed": b in failed, "snapshots": len(good),
+                              "horas": int(traj.shape[0])})
             unit_id += 1
 
     if not trajs:
         raise RuntimeError("IMS: ninguna trayectoria con suficientes instantaneas")
 
+    failed_units = np.array([u["unit"] for u in unit_meta if u["failed"]], dtype=np.int32)
+    if only_failed:
+        # Los 8 rodamientos que NO rompieron llevan la misma etiqueta de RUL que el que
+        # si, porque el ensayo se detiene para todos a la vez. Eso es ruido de etiqueta
+        # en dos tercios de los datos: un rodamiento sano "a 0 horas del fallo" ensena
+        # al modelo que la degradacion no se ve venir.
+        keep = set(failed_units.tolist())
+        trajs = {u: t for u, t in trajs.items() if u in keep}
+        unit_meta = [m for m in unit_meta if m["unit"] in keep]
+
     prod = _build_rul_product(trajs, window, stride, rul_cap)
     prod = _normalize_rul_product(prod)
-    failed_units = np.array([u["unit"] for u in unit_meta if u["failed"]], dtype=np.int32)
     prod["failed_units"] = failed_units
     meta = {"key": "nasa_ims_bearing", "product": "rul", "n_units": len(trajs),
             "window": window, "stride": stride, "rul_cap": rul_cap,
-            "unit_name": "instantanea de 10 min", "hours_per_unit": 1 / 6,
-            "hours_per_unit_note": "IMS graba 1 s de vibracion cada 10 min (medido, no supuesto).",
-            "features": feature_names(1), "units": unit_meta,
-            "failed_units": failed_units.tolist(),
+            "unit_name": "hora", "hours_per_unit": 1.0,
+            "hours_per_unit_note": "IMS graba 1 s de vibracion cada 10 min (medido); aqui se "
+                                   "promedian las 6 instantaneas de cada hora.",
+            "features": feature_names(1) + envelope_feature_names(),
+            "units": unit_meta, "failed_units": failed_units.tolist(),
+            "solo_rodamientos_rotos": bool(only_failed),
+            "geometria": {**IMS_BEARING, "rpm": IMS_RPM, "fs": IMS_FS},
+            "frecuencias_defecto_hz": {k: round(v, 2) for k, v in
+                                       bearing_fault_freqs(rpm=IMS_RPM, **IMS_BEARING).items()},
             "nota_unidades": "los 4 rodamientos de un banco comparten el instante de fallo "
                              "(el ensayo se detiene ahi); 'failed' marca cual rompio."}
     _save(out, "nasa_ims_bearing", "rul", prod, meta)
@@ -622,7 +735,10 @@ def run_all(data_dir: str | Path, cfg: dict[str, Any] | None = None,
                 stride = int(over.get("stride", tune.get("stride", STRIDE_DEFAULT)))
                 rul_cap = float(over.get("rul_cap",
                                          _RUL_CAP_FACTOR * lead_horizon_units(key, lead_days)))
-                meta = fn(raw_root / key, out, cb, window, stride, rul_cap)
+                extra_kw = {}
+                if key == "nasa_ims_bearing":
+                    extra_kw["only_failed"] = bool(over.get("ims_only_failed", False))
+                meta = fn(raw_root / key, out, cb, window, stride, rul_cap, **extra_kw)
                 # el adaptador ya escribio el meta.json; le anadimos el horizonte
                 mp = out / f"{key}_rul.meta.json"
                 meta = {**json.loads(mp.read_text(encoding="utf-8")),

@@ -57,6 +57,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--train-rtf", action="store_true",
                     help="RUN-TO-FAILURE real (MetroPT-3) a máxima carga: RUL + lead-time + búsqueda HP.")
     ap.add_argument("--trials", type=int, default=30, help="nº de entrenamientos en la búsqueda HP (máxima carga)")
+    ap.add_argument("--cross-validate", metavar="DATASET",
+                    help="validación cruzada leave-one-out sobre un dataset run-to-failure "
+                         "(un modelo por máquina). Obligatorio cuando hay pocas máquinas: "
+                         "con 12 rodamientos, reservar el 20%% da un número que depende del sorteo.")
+    ap.add_argument("--cv-only-failed", action="store_true",
+                    help="con --cross-validate: usar solo las máquinas que realmente rompieron")
+    ap.add_argument("--cv-calls", type=int, default=40, help="bloques de entrenamiento por pliegue")
+    ap.add_argument("--cv-group", metavar="CAMPO",
+                    help="agrupar los pliegues por un campo del meta (en IMS: 'test'). "
+                         "Reserva de golpe las máquinas que comparten banco de ensayo, que "
+                         "comparten eje e instante de fallo: sin esto hay fuga entre ellas.")
+    ap.add_argument("--feature-slice", metavar="A:B",
+                    help="usar solo las columnas de features [A,B) — para ablaciones")
     a = ap.parse_args(argv)
 
     cfg = load_config(Path(a.config))
@@ -120,6 +133,23 @@ def main(argv: list[str] | None = None) -> int:
             print(f"     fallo {l['onset']} → alarma {l['alarm']}  ({l['lead_days']} días antes)")
         print(f"  trials HP     : {m['n_trials']}   tiempo: {m['train_seconds']} s")
         print(f"  guardado en   : artifacts/rtf_result_{m['device']}.json")
+        return 0
+
+    if a.cross_validate:
+        from src.crossval import leave_one_unit_out, print_report, save_report
+        from src.logging_utils import RunLogger
+        if a.feature_slice:
+            lo, hi = a.feature_slice.split(":")
+            cfg.setdefault("train", {})["feature_slice"] = [int(lo), int(hi)]
+        logger = RunLogger(HERE / cfg["paths"]["logs_dir"])
+        summary = leave_one_unit_out(cfg, HERE, a.cross_validate, logger,
+                                     max_calls=a.cv_calls, only_failed=a.cv_only_failed,
+                                     group_by=a.cv_group)
+        print_report(summary)
+        tag = ("solorotos" if a.cv_only_failed else "") + (f"g{a.cv_group}" if a.cv_group else "")
+        if a.feature_slice:
+            tag += "_f" + a.feature_slice.replace(":", "-")
+        print("\n  informe:", save_report(summary, HERE, cfg, tag))
         return 0
 
     from src.orchestrator import Orchestrator

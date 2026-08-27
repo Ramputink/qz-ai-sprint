@@ -94,13 +94,26 @@ class RulTask:
         self.rul_cap = float(meta.get("rul_cap", arrays["y_rul"].max()))
 
         X, y, unit, t_idx = arrays["X"], arrays["y_rul"], arrays["unit"], arrays["t_idx"]
+
+        # `train.feature_slice` recorta columnas de features. Sirve para ablaciones
+        # honestas: mismas ventanas, mismos folds, solo cambia el juego de features.
+        sl = (cfg.get("train") or {}).get("feature_slice")
+        if sl:
+            X = X[:, :, int(sl[0]):int(sl[1])]
+
         # Split POR UNIDAD: si dos ventanas de la misma maquina caen a ambos lados,
         # el modelo ya ha visto el futuro de esa maquina y la metrica miente.
         units = np.unique(unit)
-        rng = np.random.default_rng(seed)
-        rng.shuffle(units)
-        n_val = max(1, int(round(0.2 * len(units))))
-        val_units = set(units[:n_val].tolist())
+        forced = (cfg.get("train") or {}).get("val_units")
+        if forced is not None:
+            # validacion explicita: la usa la validacion cruzada leave-one-out, donde
+            # cada pliegue reserva UNA maquina concreta y no un sorteo.
+            val_units = set(int(u) for u in forced)
+        else:
+            rng = np.random.default_rng(seed)
+            rng.shuffle(units)
+            n_val = max(1, int(round(0.2 * len(units))))
+            val_units = set(units[:n_val].tolist())
         m_val = np.isin(unit, list(val_units))
 
         dev = _device()
@@ -115,7 +128,7 @@ class RulTask:
         self.n_features = X.shape[-1]
         self.window = X.shape[1]
         self.n_units = int(len(units))
-        self.n_val_units = n_val
+        self.n_val_units = len(val_units)
         self.norm = {"mu": arrays.get("norm_mu"), "sd": arrays.get("norm_sd")}
 
     def summary(self) -> dict[str, Any]:
