@@ -52,8 +52,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--train-a", action="store_true",
                     help="ENTRENAMIENTO REAL de la etapa A (Tier A pequeño). Device auto (CUDA/MPS/CPU).")
     ap.add_argument("--dataset", default="skab", help="dataset de la etapa A (por defecto: skab)")
-    ap.add_argument("--epochs", type=int, default=60, help="épocas de la etapa A")
+    ap.add_argument("--epochs", type=int, default=60, help="épocas")
     ap.add_argument("--device", choices=["cuda", "mps", "cpu"], help="forzar dispositivo")
+    ap.add_argument("--train-rtf", action="store_true",
+                    help="RUN-TO-FAILURE real (MetroPT-3) a máxima carga: RUL + lead-time + búsqueda HP.")
+    ap.add_argument("--trials", type=int, default=30, help="nº de entrenamientos en la búsqueda HP (máxima carga)")
     a = ap.parse_args(argv)
 
     cfg = load_config(Path(a.config))
@@ -94,6 +97,29 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  PR-AUC      : {m.get('pr_auc')}   ROC-AUC: {m.get('roc_auc')}")
         print(f"  tiempo      : {m['train_seconds']} s")
         print(f"  guardado en : artifacts/stage_a_result_{m['device']}.json")
+        return 0
+
+    if a.train_rtf:
+        from src.logging_utils import RunLogger
+        from src.processview import ProcessView
+        from src.checkpointing import CheckpointManager
+        from src.stage_rtf import run_stage_rtf
+        p = cfg["paths"]
+        logger = RunLogger(HERE / p["logs_dir"])
+        pv = ProcessView(HERE / p["processview_dir"], refresh_sec=cfg["run"].get("processview_refresh_sec", 10))
+        ckpt = CheckpointManager(HERE / p["checkpoints_dir"], keep_last=6)
+        m = run_stage_rtf(cfg, HERE, logger, pv, ckpt, n_trials=a.trials, epochs=a.epochs, device=a.device)
+        print("\n=== RESULTADO RUN-TO-FAILURE (MetroPT-3) ===")
+        print(f"  device        : {m['device']} ({m.get('hardware')})")
+        print(f"  datos         : {m['raw_rows']:,} filas → {m['windows']} ventanas")
+        print(f"  accuracy      : {m['accuracy']}  (balanced {m['balanced_accuracy']})")
+        print(f"  confusión     : {m['confusion']}   FN/FP: {m['false_negatives']}/{m['false_positives']}")
+        print(f"  PR-AUC/ROC    : {m.get('pr_auc')} / {m.get('roc_auc')}")
+        print(f"  fallos detect.: {m['failures_detected']}   lead-time medio: {m['mean_lead_days']} días")
+        for l in m["lead_time"]:
+            print(f"     fallo {l['onset']} → alarma {l['alarm']}  ({l['lead_days']} días antes)")
+        print(f"  trials HP     : {m['n_trials']}   tiempo: {m['train_seconds']} s")
+        print(f"  guardado en   : artifacts/rtf_result_{m['device']}.json")
         return 0
 
     from src.orchestrator import Orchestrator
