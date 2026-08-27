@@ -49,6 +49,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dry-run", action="store_true", help="simula sin GPU (para probar en Mac)")
     ap.add_argument("--list-data", action="store_true", help="lista los datasets del plan y sale")
     ap.add_argument("--gpu-check", action="store_true", help="solo verifica el stack de GPU y sale")
+    ap.add_argument("--train-a", action="store_true",
+                    help="ENTRENAMIENTO REAL de la etapa A (Tier A pequeño). Device auto (CUDA/MPS/CPU).")
+    ap.add_argument("--dataset", default="skab", help="dataset de la etapa A (por defecto: skab)")
+    ap.add_argument("--epochs", type=int, default=60, help="épocas de la etapa A")
+    ap.add_argument("--device", choices=["cuda", "mps", "cpu"], help="forzar dispositivo")
     a = ap.parse_args(argv)
 
     cfg = load_config(Path(a.config))
@@ -68,6 +73,27 @@ def main(argv: list[str] | None = None) -> int:
         for s in specs:
             print(f"  {s.key:24} {s.method:6} ~{s.gb} GB  {s.location[:70]}")
         print(f"\nTotal plan: ~{total_gb(specs)} GB · {len(specs)} datasets")
+        return 0
+
+    if a.train_a:
+        # Entrenamiento REAL de la etapa A (no la simulación por tiempo).
+        from src.logging_utils import RunLogger
+        from src.processview import ProcessView
+        from src.checkpointing import CheckpointManager
+        from src.stage_a import run_stage_a
+        p = cfg["paths"]
+        logger = RunLogger(HERE / p["logs_dir"])
+        pv = ProcessView(HERE / p["processview_dir"], refresh_sec=cfg["run"].get("processview_refresh_sec", 10))
+        ckpt = CheckpointManager(HERE / p["checkpoints_dir"], keep_last=6)
+        m = run_stage_a(cfg, HERE, logger, pv, ckpt, dataset=a.dataset, epochs=a.epochs, device=a.device)
+        print("\n=== RESULTADO ETAPA A ===")
+        print(f"  device      : {m['device']} ({m.get('hardware')})")
+        print(f"  accuracy    : {m['accuracy']}")
+        print(f"  confusión   : {m['confusion']}")
+        print(f"  FN / FP     : {m['false_negatives']} / {m['false_positives']}")
+        print(f"  PR-AUC      : {m.get('pr_auc')}   ROC-AUC: {m.get('roc_auc')}")
+        print(f"  tiempo      : {m['train_seconds']} s")
+        print(f"  guardado en : artifacts/stage_a_result_{m['device']}.json")
         return 0
 
     from src.orchestrator import Orchestrator
