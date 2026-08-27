@@ -1,0 +1,12 @@
+# generados en ejecución (no versionar)
+data/
+checkpoints/
+artifacts/
+processview/
+logs/
+state.json
+.venv/
+.venv-mac/
+__pycache__/
+*.pyc
+analyze/plots_out/

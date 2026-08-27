@@ -1,0 +1,51 @@
+# Dependencias de ENTRENAMIENTO — PC Windows con RTX 5090 (Blackwell / sm_120).
+#
+# IMPORTANTE: PyTorch NO se instala desde aquí. La 5090 (Blackwell) necesita el
+# build cu128+. setup_windows.ps1 lo instala así:
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+# (o usa el container NGC nvcr.io/nvidia/pytorch:25.x). Verifica con: python run.py --gpu-check
+#
+# El resto de dependencias:
+
+# --- núcleo ---
+numpy>=1.26
+pandas>=2.1
+pyyaml>=6.0
+pyarrow>=15.0          # Parquet portable (Mac/Windows)
+scipy>=1.11            # FFT/Hilbert para features de vibración
+scikit-learn>=1.4      # baselines, métricas, calibración
+
+# --- modelos de series temporales / forecasting ---
+neuralforecast>=1.7    # N-HiTS, TFT, PatchTST, iTransformer, DLinear (Nixtla)
+# darts>=0.30          # opcional: TCNModel, alternativas
+
+# --- boosting en GPU (baselines fuertes) ---
+xgboost>=2.0
+lightgbm>=4.3
+
+# --- detección de anomalías ---
+pyod>=2.0              # autoencoder, IsolationForest, DeepSVDD, etc.
+
+# --- aprendizaje online / deriva (recalibración) ---
+river>=0.21           # ADWIN, online learning
+
+# --- foundation models (opcionales; descoméntalos si los usarás) ---
+# chronos-forecasting  # Amazon Chronos-Bolt
+# timesfm              # Google TimesFM
+# momentfm             # MOMENT (multitarea)
+peft>=0.11            # LoRA para fine-tune barato
+transformers>=4.44
+
+# --- HPO / orquestación ---
+optuna>=3.6           # búsqueda de hiperparámetros reanudable (SQLite)
+
+# --- export a edge ---
+onnx>=1.16
+onnxruntime>=1.18     # inferencia portable (también en el edge/Mac)
+# tensorrt            # solo si vas a compilar engines en el PC/Jetson
+
+# --- utilidades ---
+huggingface_hub>=0.24 # descarga de LOTSA / Monash
+kaggle>=1.6           # descarga de N-CMAPSS / CWRU (necesita ~/.kaggle/kaggle.json)
+tqdm>=4.66
+nvidia-ml-py>=12.0    # lectura de estado de GPU para el ProcessView

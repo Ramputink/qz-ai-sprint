@@ -1,0 +1,70 @@
+# Configuración del sprint de entrenamiento QuantumZIGMA
+# 4 días = 2 generaciones de 2 días. Todo el tiempo se controla desde aquí.
+# Editable sin tocar el código. Las horas son orientativas; el orquestador respeta
+# el reloj y pasa de etapa cuando se agota la ventana (o antes si converge).
+
+run:
+  seed: 20260827
+  # Cadencia de guardado. checkpoint_every_min = backup periódico reanudable.
+  checkpoint_every_min: 30
+  # Cada cuántos segundos refresca el ProcessView (status.json + index.html).
+  processview_refresh_sec: 10
+  # Si true, no entrena de verdad: simula fases (para probar el flujo en Mac sin GPU).
+  dry_run: false
+
+paths:
+  data_dir: data                 # donde se descargan/preprocesan los datasets
+  checkpoints_dir: checkpoints   # backups c/30 min (se envían al Mac)
+  artifacts_dir: artifacts       # paquetes por etapa/generación (se envían al Mac)
+  processview_dir: processview    # status.json + index.html en vivo
+  logs_dir: logs                 # logs estructurados JSONL
+
+# Ventanas de tiempo. 2 generaciones × 2 etapas. Horas por etapa (a sobrecarga plena).
+schedule:
+  generation_1:
+    stage_1a_hours: 24   # Día 1: predictivo + precisión
+    stage_1b_hours: 24   # Día 2: recalibración + edge + eval  → artefacto Gen 1
+  generation_2:
+    stage_2a_hours: 24   # Día 3: warm-start desde Gen 1 + HPO expandido + modelos secundarios
+    stage_2b_hours: 24   # Día 4: recalibración final + edge + eval comparativa Gen1 vs Gen2
+
+# Qué datasets descargar (claves de src/data/registry.py). Comenta los que no quieras.
+datasets:
+  tier_a_predictive:   # NÚCLEO: mantenimiento predictivo (motor/rodamiento run-to-failure)
+    - nasa_ims_bearing
+    - ncmapss
+    - paderborn_bearing
+    - cwru_bearing
+    - mfpt_bearing
+    - metropt3
+    - skab
+  tier_b_corpus:       # corpus grande para foundation model (opcional, MUY pesado)
+    - monash_tsf
+    - lotsa            # 925 GB — ACTIVADO. Requiere ~1 TB de disco libre en el PC.
+  tier_c_consumption:  # consumo eléctrico (previsión + NILM)
+    - ukdale_csv
+    - building_data_genome_2
+  tier_d_anomaly_ot:   # anomalía TS + intrusión OT (secundario)
+    - nab
+    - smd
+
+# Objetivo del modelo predictivo (define el éxito).
+target:
+  lead_time_days: 10        # anticipación mínima de aviso de fallo
+  min_accuracy: 0.90        # accuracy mínima objetivo
+  fn_weight: 5.0            # coste de un falso negativo vs falso positivo (FN >> FP)
+  hard_negative_boost: 3.0  # peso extra de los FN reinyectados en la recalibración
+
+# Entrenamiento (hiperparámetros base; Optuna busca alrededor de estos).
+train:
+  precision: bf16           # bf16 recomendado en Blackwell; fp16/fp32 alternativos
+  torch_compile: true       # torch.compile(mode="max-autotune")
+  batch_size: auto          # auto-tuneado hasta llenar los 32 GB de la 5090
+  num_workers: 16           # DataLoader (16c/32t del 9950X3D)
+  optuna_trials_per_stage: 100
+  early_stop_patience: 15
+
+edge:
+  quantize: int8            # int8 para edge barato (Jetson/Pi); fp8 si el edge es Blackwell
+  export_onnx: true
+  export_tensorrt: false    # true solo si hay TensorRT instalado en el PC

@@ -1,0 +1,11 @@
+# Dependencias de ANÁLISIS — Mac (CPU, sin CUDA). Para revisar el progreso que
+# llega del PC: abrir paquetes, cargar checkpoints, graficar métricas.
+# Ligero a propósito: nada de CUDA.
+
+numpy>=1.26
+pandas>=2.1
+pyarrow>=15.0
+matplotlib>=3.8
+pyyaml>=6.0
+onnxruntime>=1.18       # probar el modelo edge (ONNX) en el Mac
+torch>=2.2 ; platform_system == "Darwin"   # opcional: cargar pesos .pt en CPU (build normal, no CUDA)
