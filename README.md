@@ -32,6 +32,12 @@ Copia toda la carpeta `qz-ai-sprint/` al PC y ejecuta (doble clic o en PowerShel
 Instala PyTorch **cu128** (imprescindible para la 5090), el resto de dependencias, y
 **verifica el stack** (`python run.py --gpu-check` debe salir con `capability 12.0` y `sm_120`).
 
+> **En CADA terminal nueva, activa el entorno ANTES de ejecutar** (si no, verás "Falta PyYAML"):
+> ```powershell
+> .\.venv\Scripts\Activate.ps1     # el prompt debe empezar por (.venv)
+> ```
+> Si da error de permisos: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` y reintenta.
+
 ### 1.3 Probar sin entrenar (2 segundos)
 ```powershell
 python run.py --dry-run       # simula las 2 generaciones y genera un ProcessView de ejemplo

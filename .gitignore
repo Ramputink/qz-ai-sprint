@@ -9,6 +9,8 @@
 state.json
 .venv/
 .venv-mac/
+.venv-train-mac/
+.venv-*/
 __pycache__/
 *.pyc
 analyze/plots_out/

@@ -30,7 +30,12 @@ def load_config(path: Path) -> dict:
     try:
         import yaml
     except Exception:
-        sys.exit("Falta PyYAML. Instala: pip install pyyaml  (o corre setup_windows/setup_mac).")
+        sys.exit(
+            "\nFalta PyYAML → casi seguro NO has activado el entorno virtual.\n"
+            "  Windows:  .\\.venv\\Scripts\\Activate.ps1   (el prompt debe empezar por (.venv))\n"
+            "  Mac:      source .venv-mac/bin/activate\n"
+            "y vuelve a ejecutar. Si aún falta:  pip install -r requirements-train.txt\n"
+        )
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
@@ -44,6 +49,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dry-run", action="store_true", help="simula sin GPU (para probar en Mac)")
     ap.add_argument("--list-data", action="store_true", help="lista los datasets del plan y sale")
     ap.add_argument("--gpu-check", action="store_true", help="solo verifica el stack de GPU y sale")
+    ap.add_argument("--train-a", action="store_true",
+                    help="ENTRENAMIENTO REAL de la etapa A (Tier A pequeño). Device auto (CUDA/MPS/CPU).")
+    ap.add_argument("--dataset", default="skab", help="dataset de la etapa A (por defecto: skab)")
+    ap.add_argument("--epochs", type=int, default=60, help="épocas")
+    ap.add_argument("--device", choices=["cuda", "mps", "cpu"], help="forzar dispositivo")
+    ap.add_argument("--train-rtf", action="store_true",
+                    help="RUN-TO-FAILURE real (MetroPT-3) a máxima carga: RUL + lead-time + búsqueda HP.")
+    ap.add_argument("--trials", type=int, default=30, help="nº de entrenamientos en la búsqueda HP (máxima carga)")
     a = ap.parse_args(argv)
 
     cfg = load_config(Path(a.config))
@@ -63,6 +76,50 @@ def main(argv: list[str] | None = None) -> int:
         for s in specs:
             print(f"  {s.key:24} {s.method:6} ~{s.gb} GB  {s.location[:70]}")
         print(f"\nTotal plan: ~{total_gb(specs)} GB · {len(specs)} datasets")
+        return 0
+
+    if a.train_a:
+        # Entrenamiento REAL de la etapa A (no la simulación por tiempo).
+        from src.logging_utils import RunLogger
+        from src.processview import ProcessView
+        from src.checkpointing import CheckpointManager
+        from src.stage_a import run_stage_a
+        p = cfg["paths"]
+        logger = RunLogger(HERE / p["logs_dir"])
+        pv = ProcessView(HERE / p["processview_dir"], refresh_sec=cfg["run"].get("processview_refresh_sec", 10))
+        ckpt = CheckpointManager(HERE / p["checkpoints_dir"], keep_last=6)
+        m = run_stage_a(cfg, HERE, logger, pv, ckpt, dataset=a.dataset, epochs=a.epochs, device=a.device)
+        print("\n=== RESULTADO ETAPA A ===")
+        print(f"  device      : {m['device']} ({m.get('hardware')})")
+        print(f"  accuracy    : {m['accuracy']}")
+        print(f"  confusión   : {m['confusion']}")
+        print(f"  FN / FP     : {m['false_negatives']} / {m['false_positives']}")
+        print(f"  PR-AUC      : {m.get('pr_auc')}   ROC-AUC: {m.get('roc_auc')}")
+        print(f"  tiempo      : {m['train_seconds']} s")
+        print(f"  guardado en : artifacts/stage_a_result_{m['device']}.json")
+        return 0
+
+    if a.train_rtf:
+        from src.logging_utils import RunLogger
+        from src.processview import ProcessView
+        from src.checkpointing import CheckpointManager
+        from src.stage_rtf import run_stage_rtf
+        p = cfg["paths"]
+        logger = RunLogger(HERE / p["logs_dir"])
+        pv = ProcessView(HERE / p["processview_dir"], refresh_sec=cfg["run"].get("processview_refresh_sec", 10))
+        ckpt = CheckpointManager(HERE / p["checkpoints_dir"], keep_last=6)
+        m = run_stage_rtf(cfg, HERE, logger, pv, ckpt, n_trials=a.trials, epochs=a.epochs, device=a.device)
+        print("\n=== RESULTADO RUN-TO-FAILURE (MetroPT-3) ===")
+        print(f"  device        : {m['device']} ({m.get('hardware')})")
+        print(f"  datos         : {m['raw_rows']:,} filas → {m['windows']} ventanas")
+        print(f"  accuracy      : {m['accuracy']}  (balanced {m['balanced_accuracy']})")
+        print(f"  confusión     : {m['confusion']}   FN/FP: {m['false_negatives']}/{m['false_positives']}")
+        print(f"  PR-AUC/ROC    : {m.get('pr_auc')} / {m.get('roc_auc')}")
+        print(f"  fallos detect.: {m['failures_detected']}   lead-time medio: {m['mean_lead_days']} días")
+        for l in m["lead_time"]:
+            print(f"     fallo {l['onset']} → alarma {l['alarm']}  ({l['lead_days']} días antes)")
+        print(f"  trials HP     : {m['n_trials']}   tiempo: {m['train_seconds']} s")
+        print(f"  guardado en   : artifacts/rtf_result_{m['device']}.json")
         return 0
 
     from src.orchestrator import Orchestrator
