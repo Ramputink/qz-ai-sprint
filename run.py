@@ -30,7 +30,12 @@ def load_config(path: Path) -> dict:
     try:
         import yaml
     except Exception:
-        sys.exit("Falta PyYAML. Instala: pip install pyyaml  (o corre setup_windows/setup_mac).")
+        sys.exit(
+            "\nFalta PyYAML → casi seguro NO has activado el entorno virtual.\n"
+            "  Windows:  .\\.venv\\Scripts\\Activate.ps1   (el prompt debe empezar por (.venv))\n"
+            "  Mac:      source .venv-mac/bin/activate\n"
+            "y vuelve a ejecutar. Si aún falta:  pip install -r requirements-train.txt\n"
+        )
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
