@@ -20,33 +20,37 @@ paths:
   logs_dir: logs                 # logs estructurados JSONL
 
 # Ventanas de tiempo. 2 generaciones × 2 etapas. Horas por etapa (a sobrecarga plena).
+# SPRINT CORTO (2026-08-27): horas reducidas para obtener métricas reales sobre Tier A
+# en una sola sesión. Para el sprint completo de 4 días, vuelve a poner 24 en las cuatro.
 schedule:
   generation_1:
-    stage_1a_hours: 24   # Día 1: predictivo + precisión
-    stage_1b_hours: 24   # Día 2: recalibración + edge + eval  → artefacto Gen 1
+    stage_1a_hours: 0.75  # Día 1: predictivo + precisión
+    stage_1b_hours: 0.35  # Día 2: recalibración + edge + eval  → artefacto Gen 1
   generation_2:
-    stage_2a_hours: 24   # Día 3: warm-start desde Gen 1 + HPO expandido + modelos secundarios
-    stage_2b_hours: 24   # Día 4: recalibración final + edge + eval comparativa Gen1 vs Gen2
+    stage_2a_hours: 0.75  # Día 3: warm-start desde Gen 1 + HPO expandido + modelos secundarios
+    stage_2b_hours: 0.35  # Día 4: recalibración final + edge + eval comparativa Gen1 vs Gen2
 
 # Qué datasets descargar (claves de src/data/registry.py). Comenta los que no quieras.
 datasets:
   tier_a_predictive:   # NÚCLEO: mantenimiento predictivo (motor/rodamiento run-to-failure)
+    - cmapss           # C-MAPSS FD001-004: 709 motores run-to-failure (13 MB, núcleo de RUL)
     - nasa_ims_bearing
     - ncmapss
-    - paderborn_bearing
     - cwru_bearing
     - mfpt_bearing
     - metropt3
     - skab
-  tier_b_corpus:       # corpus grande para foundation model (opcional, MUY pesado)
-    - monash_tsf
-    - lotsa            # 925 GB — ACTIVADO. Requiere ~1 TB de disco libre en el PC.
-  tier_c_consumption:  # consumo eléctrico (previsión + NILM)
-    - ukdale_csv
-    - building_data_genome_2
-  tier_d_anomaly_ot:   # anomalía TS + intrusión OT (secundario)
-    - nab
-    - smd
+    # - paderborn_bearing  # .rar + registro manual; CWRU+MFPT ya cubren el clasificador
+  # Tiers B/C/D desactivados en el sprint corto. Descomenta para el sprint completo.
+  # tier_b_corpus:       # corpus grande para foundation model (opcional, MUY pesado)
+  #   - monash_tsf
+  #   - lotsa            # 925 GB. Requiere ~1 TB de disco libre en el PC.
+  # tier_c_consumption:  # consumo eléctrico (previsión + NILM)
+  #   - ukdale_csv
+  #   - building_data_genome_2
+  # tier_d_anomaly_ot:   # anomalía TS + intrusión OT (secundario)
+  #   - nab
+  #   - smd
 
 # Objetivo del modelo predictivo (define el éxito).
 target:
@@ -58,11 +62,15 @@ target:
 # Entrenamiento (hiperparámetros base; Optuna busca alrededor de estos).
 train:
   precision: bf16           # bf16 recomendado en Blackwell; fp16/fp32 alternativos
-  torch_compile: true       # torch.compile(mode="max-autotune")
-  batch_size: auto          # auto-tuneado hasta llenar los 32 GB de la 5090
+  torch_compile: false      # Inductor falla con conv1d en este stack (torch 2.11+cu128 /
+                            # Windows): se comprobó y se corre en eager. Pon true para reintentar.
+  batch_size: 1024          # el dataset vive residente en los 32 GB de la 5090
   num_workers: 16           # DataLoader (16c/32t del 9950X3D)
+  lr: 0.001
+  batches_per_call: 300     # minibatches por bloque; marca la granularidad del ProcessView
+  validate_every_calls: 4   # cada cuántos bloques se evalúa (métricas + umbral por coste)
   optuna_trials_per_stage: 100
-  early_stop_patience: 15
+  early_stop_patience: 15   # validaciones sin bajar el coste antes de pasar de etapa
 
 edge:
   quantize: int8            # int8 para edge barato (Jetson/Pi); fp8 si el edge es Blackwell

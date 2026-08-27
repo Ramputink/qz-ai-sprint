@@ -46,9 +46,14 @@ class CheckpointManager:
         self._last_save = 0.0
 
     # --- guardado periódico ---------------------------------------------
+    def due(self, every_min: int) -> bool:
+        """¿Toca ya un guardado? Permite al llamante no materializar los pesos
+        (que en real son cientos de MB) hasta que de verdad hagan falta."""
+        return (time.time() - self._last_save) >= every_min * 60
+
     def maybe_save(self, state: dict[str, Any], meta: dict[str, Any], every_min: int) -> str | None:
         """Guarda si han pasado >= every_min minutos desde el último guardado."""
-        if (time.time() - self._last_save) < every_min * 60:
+        if not self.due(every_min):
             return None
         return self.save(state, meta)
 

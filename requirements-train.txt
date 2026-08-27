@@ -12,8 +12,10 @@ numpy>=1.26
 pandas>=2.1
 pyyaml>=6.0
 pyarrow>=15.0          # Parquet portable (Mac/Windows)
-scipy>=1.11            # FFT/Hilbert para features de vibración
+scipy>=1.11            # FFT/Hilbert para features de vibración; lectura de .mat (CWRU/MFPT)
 scikit-learn>=1.4      # baselines, métricas, calibración
+h5py>=3.11             # N-CMAPSS viene en HDF5
+requests>=2.31         # descargas reanudables (src/data/download.py)
 
 # --- modelos de series temporales / forecasting ---
 neuralforecast>=1.7    # N-HiTS, TFT, PatchTST, iTransformer, DLinear (Nixtla)
@@ -41,6 +43,7 @@ optuna>=3.6           # búsqueda de hiperparámetros reanudable (SQLite)
 
 # --- export a edge ---
 onnx>=1.16
+onnxscript>=0.2       # lo exige el exportador ONNX de PyTorch 2.9+
 onnxruntime>=1.18     # inferencia portable (también en el edge/Mac)
 # tensorrt            # solo si vas a compilar engines en el PC/Jetson
 

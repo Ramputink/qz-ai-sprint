@@ -38,15 +38,56 @@ def quantize_int8(model, calibration_loader, device="cpu"):
     return qmodel
 
 
+def strip_weight_norm(model):
+    """Deshace la reparametrización weight_norm del TCN, in situ.
+
+    weight_norm guarda el peso como (g, v) y engancha un hook; mientras está puesto,
+    el módulo no se puede deepcopy-ar, y eso es exactamente lo que necesitan el
+    exportador ONNX y la cuantización. Deshacerlo funde g y v en un único `weight`
+    numéricamente idéntico, así que el modelo exportado predice lo mismo.
+    """
+    import torch
+    import torch.nn.utils.parametrize as P
+
+    for mod in model.modules():
+        if P.is_parametrized(mod, "weight"):
+            P.remove_parametrizations(mod, "weight", leave_parametrized=True)
+        elif hasattr(mod, "weight_g") or hasattr(mod, "weight_v"):
+            try:
+                torch.nn.utils.remove_weight_norm(mod)
+            except Exception:
+                pass
+    return model
+
+
 def export_onnx(model, sample_input, out_path: str | Path, opset: int = 17) -> str:
     import torch
+    strip_weight_norm(model)
     out_path = str(out_path)
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     model.eval()
     torch.onnx.export(model, sample_input, out_path, opset_version=opset,
                       input_names=["input"], output_names=["output"],
                       dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}})
+    _inline_external_data(out_path)
     return out_path
+
+
+def _inline_external_data(out_path: str) -> None:
+    """Deja el .onnx AUTOCONTENIDO (pesos dentro del fichero).
+
+    El exportador nuevo de PyTorch saca los tensores a un `<modelo>.onnx.data`
+    aparte. En el edge eso es una trampa: se copia el .onnx solo y el modelo carga
+    vacío o falla. Un modelo de estos pesa centenares de KB, así que no hay razón
+    para trocearlo.
+    """
+    sidecar = Path(out_path + ".data")
+    if not sidecar.exists():
+        return
+    import onnx
+    model = onnx.load(out_path, load_external_data=True)
+    onnx.save(model, out_path, save_as_external_data=False)
+    sidecar.unlink(missing_ok=True)
 
 
 def export_tensorrt(onnx_path: str | Path, out_engine: str | Path, int8: bool = True) -> str:

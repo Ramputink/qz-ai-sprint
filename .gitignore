@@ -1,9 +1,11 @@
 # generados en ejecución (no versionar)
-data/
-checkpoints/
-artifacts/
-processview/
-logs/
+# Anclados con "/" para que solo afecten a la raíz: sin la barra, "data/"
+# también ignoraría src/data/, que es código y sí debe versionarse.
+/data/
+/checkpoints/
+/artifacts/
+/processview/
+/logs/
 state.json
 .venv/
 .venv-mac/

@@ -119,11 +119,21 @@ class Orchestrator:
         download_all(specs, self.base / self.cfg["paths"]["data_dir"], cb)
 
     def _preprocess(self) -> None:
+        from .data.preprocess import run_all
         self.logger.info("preprocess_start")
-        self.pv.update(phase_label="Preprocesado (features de vibración)", progress_pct=50.0)
-        # El preprocesado concreto depende del layout de cada dataset; se ejecuta en
-        # el PC con los datos ya descargados (src/data/preprocess.py provee las features).
-        self.logger.info("preprocess_note", note="usa src/data/preprocess.py sobre data/*")
+
+        def cb(k, pct, msg):
+            self.pv.update(phase_label=f"Preprocesando {k}", progress_pct=pct,
+                           log_tail=self.logger.tail(12))
+
+        summary = run_all(self.base / self.cfg["paths"]["data_dir"], self.cfg, cb)
+        self.logger.info("preprocess_done", ok=summary["ok"],
+                         saltados=[s["key"] for s in summary["skipped"]],
+                         fallos=[f["key"] for f in summary["failed"]])
+        for f in summary["failed"]:
+            self.logger.warn("preprocess_fail", dataset=f["key"], error=f["error"])
+        if not summary["products"]:
+            raise RuntimeError("el preprocesado no produjo ningún dataset entrenable")
 
     # --- una etapa (bucle acotado por tiempo) ---------------------------
     def _run_stage(self, gen: int, sid: str, label: str, day: int, hours: float) -> None:
@@ -147,30 +157,46 @@ class Orchestrator:
                 checkpoints=[Path(c).name for c in ckpt_names[-8:]],
                 log_tail=self.logger.tail(12),
             )
-            name = self.ckpt.maybe_save(
-                {"stage": sid, "step": step, "metrics": metrics, "model": ctx.get("model_state")},
-                {"generation": gen, "stage": sid, "step": step, "metrics": metrics}, every_min)
-            if name:
+            if self.ckpt.due(every_min):
+                name = self.ckpt.save(
+                    {"stage": sid, "step": step, "metrics": metrics, "model": self._state(ctx)},
+                    {"generation": gen, "stage": sid, "step": step, "metrics": metrics})
                 ckpt_names.append(name)
                 self.logger.info("checkpoint", name=name, step=step)
+
+            trainer = ctx.get("trainer")
+            if trainer is not None and getattr(trainer, "stop", False):
+                self.logger.info("stage_converged", stage=sid, step=step,
+                                 note="parada temprana: el coste dejó de mejorar")
+                break
             # en dry-run avanzamos rápido; en real, el propio work bloquea lo suyo
             if self.dry:
                 time.sleep(0.01)
                 if step >= 40:   # simulación corta: no esperar horas reales
                     break
 
-        # cierre de etapa: checkpoint 'best' + auto-guardado (.zip para el Mac)
-        final_metrics = ctx.get("last_metrics", {})
-        self.ckpt.save_best({"stage": sid, "step": step, "model": ctx.get("model_state")},
-                            {"generation": gen, "stage": sid, "step": step, "metrics": final_metrics})
+        # cierre de etapa: trabajo final (baseline/edge/comparativa) + 'best' + .zip
+        trainer = ctx.get("trainer")
+        report = trainer.finalize() if trainer is not None else {}
+        # el checkpoint 'best' guarda las MEJORES métricas de la etapa, no las últimas:
+        # es el que la Gen 2 usa para el warm-start y el que se compara al final.
+        best_metrics = (getattr(trainer, "best", {}) or {}).get("metrics") \
+            or ctx.get("last_metrics", {})
+        self.ckpt.save_best({"stage": sid, "step": step, "model": self._state(ctx)},
+                            {"generation": gen, "stage": sid, "step": step,
+                             "metrics": best_metrics, "informe": report})
         zip_path = self.archiver.package(
             f"gen{gen}_etapa{sid}",
             [self.base / self.cfg["paths"]["checkpoints_dir"],
              self.base / self.cfg["paths"]["processview_dir"],
-             self.base / self.cfg["paths"]["logs_dir"]],
-            {"generation": gen, "stage": sid, "steps": step, "metrics": final_metrics})
-        self.pv.update(artifacts=[Path(zip_path).name])
-        self.logger.info("stage_done", stage=sid, steps=step, package=Path(zip_path).name)
+             self.base / self.cfg["paths"]["logs_dir"],
+             self.base / self.cfg["paths"]["artifacts_dir"] / "edge"],
+            {"generation": gen, "stage": sid, "steps": step,
+             "metrics": best_metrics, "informe": report})
+        self.pv.update(artifacts=[Path(zip_path).name], metrics=best_metrics)
+        self.logger.info("stage_done", stage=sid, steps=step, package=Path(zip_path).name,
+                         mejor=best_metrics.get("accuracy"), fn=best_metrics.get("fn"),
+                         anticipacion_dias=best_metrics.get("lead_time_days"))
 
     # --- work functions -------------------------------------------------
     def _simulate_step(self, ctx: dict[str, Any], step: int) -> dict[str, Any]:
@@ -187,15 +213,29 @@ class Orchestrator:
         return m
 
     def _real_step(self, ctx: dict[str, Any], step: int) -> dict[str, Any]:
-        """Un paso de entrenamiento real en el PC. Wiring de modelos según etapa.
-        Aquí se conectan RUL/AE/clasificador/foundation/recalibración/edge. El
-        detalle fino se ajusta con los datos ya descargados; este es el punto de
-        integración (documentado en README)."""
-        # El bucle real de entrenamiento (dataloaders, optimizador, HPO Optuna) se
-        # engancha aquí usando src/models/*, src/recalibration.py y src/edge_export.py.
-        raise NotImplementedError(
-            "Ejecución real: engancha aquí el trainer de la etapa. En Mac usa dry_run:true. "
-            "En el PC, tras descargar/preprocesar, completa el wiring por etapa (ver README §Integración).")
+        """Un paso de entrenamiento real en el PC.
+
+        Delega en `src.trainer.StageTrainer`, que sabe qué toca en cada etapa
+        (predictivo, recalibración, warm-start, comparativa). Aquí solo se mantiene
+        vivo el trainer entre llamadas y se exporta el estado para el checkpoint.
+        """
+        trainer = ctx.get("trainer")
+        if trainer is None:
+            from .trainer import StageTrainer
+            trainer = StageTrainer(self.cfg, self.base, ctx["gen"], ctx["stage"], self.logger)
+            ctx["trainer"] = trainer
+
+        metrics = trainer.step(step)
+        ctx["last_metrics"] = metrics
+        # los pesos pesan: se materializan solo cuando toca guardar checkpoint
+        ctx["model_state_fn"] = trainer.model_state
+        return metrics
+
+    @staticmethod
+    def _state(ctx: dict[str, Any]) -> Any:
+        """Estado del modelo para el checkpoint, materializado en el último momento."""
+        fn = ctx.get("model_state_fn")
+        return fn() if fn is not None else ctx.get("model_state")
 
     # --- vistas auxiliares ----------------------------------------------
     def _target_view(self) -> dict[str, Any]:

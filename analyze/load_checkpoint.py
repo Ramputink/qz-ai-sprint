@@ -39,9 +39,22 @@ def main(argv=None) -> int:
         wp = meta_path.parent / weights
         try:
             import torch
-            sd = torch.load(wp, map_location="cpu")
-            n = sum(p.numel() for p in sd.values() if hasattr(p, "numel")) if isinstance(sd, dict) else "?"
-            print(f"  pesos       : cargados en CPU ({n} params) desde {wp.name}")
+            sd = torch.load(wp, map_location="cpu", weights_only=False)
+
+            def count(obj) -> int:
+                """Suma parámetros a cualquier profundidad: el estado del modelo va
+                anidado dentro del checkpoint (blob['model']['model'])."""
+                if hasattr(obj, "numel"):
+                    return int(obj.numel())
+                if isinstance(obj, dict):
+                    return sum(count(v) for v in obj.values())
+                return 0
+
+            n = count(sd)
+            partes = ", ".join(k for k, v in (sd.get("model") or {}).items()
+                               if isinstance(v, dict) and v) if isinstance(sd, dict) else ""
+            print(f"  pesos       : cargados en CPU ({n:,} params) desde {wp.name}"
+                  + (f" — contiene: {partes}" if partes else ""))
         except Exception as e:
             print(f"  pesos       : {wp.name} (instala torch CPU para cargarlos) — {e}")
     return 0
