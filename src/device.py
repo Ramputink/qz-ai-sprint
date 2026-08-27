@@ -23,8 +23,9 @@ def pick_device(prefer: str | None = None) -> str:
     return "cpu"
 
 
-def configure_max_power(num_threads: int | None = None) -> dict[str, Any]:
-    """Ajusta hilos y flags para rendimiento máximo. Devuelve un informe."""
+def configure_max_power(num_threads: int | None = None, force_device: str | None = None) -> dict[str, Any]:
+    """Ajusta hilos y flags para rendimiento máximo. Devuelve un informe.
+    `force_device` respeta el dispositivo elegido por el usuario (--device)."""
     import torch
     cores = os.cpu_count() or 4
     threads = num_threads or cores
@@ -38,7 +39,7 @@ def configure_max_power(num_threads: int | None = None) -> dict[str, Any]:
                 "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
         os.environ.setdefault(var, str(threads))
 
-    dev = pick_device()
+    dev = force_device or pick_device()
     info: dict[str, Any] = {"device": dev, "cpu_cores": cores, "torch_threads": threads}
 
     if dev == "cuda":

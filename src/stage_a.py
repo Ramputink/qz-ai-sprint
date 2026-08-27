@@ -38,8 +38,8 @@ def run_stage_a(cfg: dict[str, Any], base_dir: Path, logger, pv, ckpt, *,
     from .models.classifier import best_threshold
 
     t0 = time.time()
-    hw = configure_max_power(cfg.get("train", {}).get("num_workers"))
-    dev = device or hw["device"]
+    hw = configure_max_power(cfg.get("train", {}).get("num_workers"), force_device=device)
+    dev = hw["device"]
     logger.info("stage_a_start", dataset=dataset, **hw)
     pv.update(phase_label=f"Etapa A · {dataset} · {dev}", generation=1, stage="A", day_of_4=1,
               progress_pct=0.0, gpu={"device": hw.get("gpu"), "modo": dev, "hilos": hw["torch_threads"]},
