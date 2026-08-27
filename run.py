@@ -113,7 +113,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  device        : {m['device']} ({m.get('hardware')})")
         print(f"  datos         : {m['raw_rows']:,} filas → {m['windows']} ventanas")
         print(f"  accuracy      : {m['accuracy']}  (balanced {m['balanced_accuracy']})")
-        print(f"  confusión     : {m['confusion']}   FN/FP: {m['false_negatives']}/{m['false_positives']}")
+        print(f"  confusión     : {m['confusion']}   FN/FP(ventana): {m['false_negatives']}/{m['false_positives']}")
+        print(f"  FALSAS ALARMAS: {m['false_alarm_events']} episodios (operacional, tras antirrebote)")
+        print(f"  punto operación: umbral {m['operating_point']['threshold']} · {m['operating_point']['min_consecutive_windows']} ventanas consecutivas")
         print(f"  PR-AUC/ROC    : {m.get('pr_auc')} / {m.get('roc_auc')}")
         print(f"  fallos detect.: {m['failures_detected']}   lead-time medio: {m['mean_lead_days']} días")
         for l in m["lead_time"]:

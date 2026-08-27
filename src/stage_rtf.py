@@ -35,21 +35,32 @@ def _confusion(y_true, score, thr):
             "balanced_acc": round((tpr + tnr) / 2, 4)}
 
 
-def _lead_time(timestamps, score, thr, onsets, lead_horizon_days=20.0):
-    """Para cada onset de fallo, primer instante (en la ventana previa) en que el
-    score supera el umbral → días de antelación."""
+def _debounce(alarm_bool, min_consec):
+    """Antirrebote: la alarma solo cuenta tras `min_consec` ventanas consecutivas
+    sobre el umbral → elimina alarmas transitorias (falsos positivos)."""
+    import numpy as np
+    out = np.zeros(len(alarm_bool), dtype=bool)
+    run = 0
+    for i, a in enumerate(alarm_bool):
+        run = run + 1 if a else 0
+        out[i] = run >= min_consec
+    return out
+
+
+def _lead_time(timestamps, alarm_bool, onsets, lead_horizon_days=20.0):
+    """Para cada onset, primer instante con ALARMA (ya con antirrebote) en la ventana
+    previa → días de antelación."""
     import numpy as np
     import pandas as pd
     ts = pd.DatetimeIndex(pd.to_datetime(timestamps))
     leads = []
     for o in onsets:
         o = pd.Timestamp(o)
-        window_start = o - pd.Timedelta(days=lead_horizon_days)
-        mask = np.asarray((ts >= window_start) & (ts < o))
+        mask = np.asarray((ts >= o - pd.Timedelta(days=lead_horizon_days)) & (ts < o))
         if not mask.any():
             continue
         idxs = np.where(mask)[0]
-        alarmed = idxs[score[idxs] >= thr]
+        alarmed = idxs[alarm_bool[idxs]]
         if len(alarmed):
             first = ts[int(alarmed[0])]
             leads.append({"onset": str(o), "alarm": str(first),
@@ -57,6 +68,24 @@ def _lead_time(timestamps, score, thr, onsets, lead_horizon_days=20.0):
         else:
             leads.append({"onset": str(o), "alarm": None, "lead_days": 0.0})
     return leads
+
+
+def _false_alarm_events(timestamps, alarm_bool, onsets, guard_days):
+    """Nº de EPISODIOS de alarma (flancos de subida) fuera de la zona de fallo — la
+    métrica operacional de falsos positivos (no ventana a ventana)."""
+    import numpy as np
+    import pandas as pd
+    ts = pd.DatetimeIndex(pd.to_datetime(timestamps))
+    near = np.zeros(len(ts), dtype=bool)
+    for o in onsets:
+        o = pd.Timestamp(o)
+        near |= np.asarray((ts >= o - pd.Timedelta(days=guard_days)) & (ts <= o + pd.Timedelta(days=2)))
+    fa, prev = 0, False
+    for i in range(len(alarm_bool)):
+        if alarm_bool[i] and not prev and not near[i]:
+            fa += 1
+        prev = bool(alarm_bool[i])
+    return fa
 
 
 def run_stage_rtf(cfg: dict[str, Any], base_dir: Path, logger, pv, ckpt, *,
@@ -152,23 +181,46 @@ def run_stage_rtf(cfg: dict[str, Any], base_dir: Path, logger, pv, ckpt, *,
         logger.info("trial", trial=trial, bal_acc=cm["balanced_acc"], acc=cm["accuracy"],
                     fp=cm["fp"], fn=cm["fn"], **score["hp"])
 
-    # --- lead-time del mejor modelo sobre los fallos del periodo de test ---
+    # --- PUNTO DE OPERACIÓN con antirrebote: detectar el fallo con MÍNIMAS falsas alarmas ---
     ens_best = 0.7 * best["prob"] + 0.3 * ae_rank
-    leads = _lead_time(ts_te, ens_best, best["thr"], onsets)
+    lead_target = float(cfg.get("target", {}).get("lead_time_days", 10.0))
+    op = None
+    for consec in [3, 6, 12, 24, 48]:                       # 30 min … 8 h de persistencia
+        for q in np.linspace(0.85, 0.995, 30):
+            thr = float(np.quantile(ens_best, q))
+            deb = _debounce(ens_best >= thr, consec)
+            leads = _lead_time(ts_te, deb, onsets)
+            hit = [l for l in leads if l["alarm"]]
+            fa = _false_alarm_events(ts_te, deb, onsets, guard_days=lead_target)
+            min_lead = min([l["lead_days"] for l in hit], default=0.0)
+            key = (len(hit), -fa, min_lead)                  # +detección, −falsas alarmas, +antelación
+            if op is None or key > op["key"]:
+                op = {"key": key, "thr": thr, "consec": consec, "leads": leads,
+                      "fa": fa, "hit": len(hit), "min_lead": min_lead, "alarm": deb}
+    leads = op["leads"]
+    lead_days_hit = [l["lead_days"] for l in leads if l["alarm"]]
+    # confusión a nivel ventana YA con antirrebote (FP muy inferior al crudo)
+    deb = op["alarm"]; yt = yte.astype(int)
+    tp = int((deb & (yt == 1)).sum()); tn = int((~deb & (yt == 0)).sum())
+    fp = int((deb & (yt == 0)).sum()); fn = int((~deb & (yt == 1)).sum())
+    acc = round((tp + tn) / max(1, len(yt)), 4)
+    tpr = tp / max(1, tp + fn); tnr = tn / max(1, tn + fp)
+
     from sklearn.metrics import average_precision_score, roc_auc_score
     try:
         pr_auc = float(average_precision_score(yte, ens_best)); roc = float(roc_auc_score(yte, ens_best))
     except Exception:
         pr_auc, roc = None, None
 
-    lead_days_hit = [l["lead_days"] for l in leads if l["alarm"]]
     metrics = {
         "device": dev, "hardware": hw.get("gpu"), "dataset": "metropt3",
-        "raw_rows": data["raw_rows"], "windows": data["n_samples"],
-        "n_test": len(yte), "accuracy": best["acc"], "balanced_accuracy": best["balanced_acc"],
-        "confusion": {k: best["cm"][k] for k in ("tp", "tn", "fp", "fn")},
-        "false_negatives": best["cm"]["fn"], "false_positives": best["cm"]["fp"],
-        "pr_auc": pr_auc, "roc_auc": roc, "threshold": round(best["thr"], 4),
+        "raw_rows": data["raw_rows"], "windows": data["n_samples"], "n_features": nf,
+        "n_test": len(yte), "accuracy": acc, "balanced_accuracy": round((tpr + tnr) / 2, 4),
+        "confusion": {"tp": tp, "tn": tn, "fp": fp, "fn": fn},
+        "false_negatives": fn, "false_positives": fp,
+        "false_alarm_events": op["fa"],           # ← la FP operacional (episodios), tras antirrebote
+        "operating_point": {"threshold": round(op["thr"], 4), "min_consecutive_windows": op["consec"]},
+        "pr_auc": pr_auc, "roc_auc": roc,
         "best_hp": best["hp"], "n_trials": n_trials, "epochs": epochs, "fn_weight": fn_w,
         "lead_time": leads,
         "mean_lead_days": round(sum(lead_days_hit) / len(lead_days_hit), 2) if lead_days_hit else 0.0,
