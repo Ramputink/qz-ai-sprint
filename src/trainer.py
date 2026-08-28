@@ -387,6 +387,28 @@ class StageTrainer:
                 "lead_time_days_min": round(float(np.min(leads)), 2),
                 "maquinas_sin_aviso": int(missed)}
 
+    @staticmethod
+    def _auc(y_bin: np.ndarray, score: np.ndarray) -> dict[str, Any]:
+        """AUC sin umbral: separa "ordena bien" de "el corte esta bien puesto".
+
+        La accuracy que reporta este trainer se mide DESPUES de elegir el umbral por
+        coste, asi que mezcla las dos cosas. Un pliegue con 1609 falsos positivos
+        puede tener un modelo que ordena perfectamente y un umbral mal colocado, o un
+        modelo que no discrimina: la accuracy sola no los distingue y el AUC si.
+
+        Se reporta PR-AUC ademas de ROC-AUC porque las clases estan desbalanceadas:
+        con pocas ventanas en fallo, el ROC-AUC se ve optimista. El PR-AUC solo se
+        interpreta contra su linea base, que es la prevalencia, asi que va incluida.
+        """
+        try:
+            from sklearn.metrics import average_precision_score, roc_auc_score
+            prevalencia = float(np.mean(y_bin))
+            return {"pr_auc": round(float(average_precision_score(y_bin, score)), 4),
+                    "pr_auc_base": round(prevalencia, 4),
+                    "roc_auc": round(float(roc_auc_score(y_bin, score)), 4)}
+        except Exception as e:
+            return {"pr_auc": None, "roc_auc": None, "auc_error": type(e).__name__}
+
     def evaluate(self, task: RulTask | None = None, model=None) -> dict[str, Any]:
         """Metricas completas sobre validacion. El umbral se elige por COSTE."""
         task = task or self.primary
@@ -405,6 +427,7 @@ class StageTrainer:
         recall = b["tp"] / max(1, b["tp"] + b["fn"])
         precision = b["tp"] / max(1, b["tp"] + b["fp"])
         lead = self._lead_time_days(pred, task, thr_rul)
+        auc = self._auc(y_bin, score)
 
         m = {"dataset": task.key,
              "mae_rul": round(float(np.mean(np.abs(pred - true))), 3),
@@ -412,7 +435,7 @@ class StageTrainer:
              "fp": b["fp"], "fn": b["fn"],
              "recall_fallo": round(recall, 4), "precision_fallo": round(precision, 4),
              "coste": round(float(b["cost"]), 1),
-             "umbral_rul": round(float(thr_rul), 3), **lead,
+             "umbral_rul": round(float(thr_rul), 3), **lead, **auc,
              "cumple_accuracy": bool(b["accuracy"] >= self.min_acc),
              "cumple_anticipacion": bool(lead["lead_time_days"] >= self.lead_days)}
         return m

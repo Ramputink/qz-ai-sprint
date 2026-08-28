@@ -54,6 +54,7 @@ def _fold_metrics(cfg: dict[str, Any], base_dir: Path, dataset: str, units: list
     return {"unit": int(unit), "units": [int(u) for u in units], "evaluable": True,
             **{k: best[k] for k in ("accuracy", "tp", "tn", "fp", "fn", "recall_fallo",
                                     "precision_fallo", "coste", "mae_rul",
+                                    "pr_auc", "pr_auc_base", "roc_auc",
                                     "lead_time_days", "lead_time_days_min",
                                     "maquinas_sin_aviso") if k in best}}
 
@@ -136,6 +137,7 @@ def leave_one_unit_out(cfg: dict[str, Any], base_dir: Path, dataset: str, logger
                            "min": round(float(lead.min()), 2), "max": round(float(lead.max()), 2),
                            "pliegues_que_cumplen": int((lead >= lead_target).sum())},
             "fn_total": int(fn.sum()),
+            **_auc_summary(ok),
             "veredicto": ("cumple en la mediana" if float(np.median(acc)) >= min_acc
                           and float(np.median(lead)) >= lead_target else "NO cumple"),
         })
@@ -143,6 +145,28 @@ def leave_one_unit_out(cfg: dict[str, Any], base_dir: Path, dataset: str, logger
     logger.info("loo_done", dataset=dataset, evaluables=len(ok),
                 veredicto=summary.get("veredicto"))
     return summary
+
+
+def _auc_summary(ok: list[dict[str, Any]]) -> dict[str, Any]:
+    """Resumen del AUC sobre los pliegues evaluables.
+
+    El PR-AUC solo dice algo comparado con su linea base (la prevalencia de la clase
+    fallo en ese pliegue), asi que se reporta tambien el margen sobre ella: es lo que
+    de verdad mide cuanto aporta el modelo frente a alarmar al azar.
+    """
+    pr = [f["pr_auc"] for f in ok if f.get("pr_auc") is not None]
+    roc = [f["roc_auc"] for f in ok if f.get("roc_auc") is not None]
+    if not pr:
+        return {}
+    base = [f.get("pr_auc_base", 0.0) for f in ok if f.get("pr_auc") is not None]
+    lift = [p - b for p, b in zip(pr, base)]
+    return {"pr_auc": {"mediana": round(float(np.median(pr)), 4),
+                       "min": round(float(np.min(pr)), 4), "max": round(float(np.max(pr)), 4),
+                       "base_mediana": round(float(np.median(base)), 4),
+                       "margen_sobre_base_mediana": round(float(np.median(lift)), 4)},
+            "roc_auc": {"mediana": round(float(np.median(roc)), 4),
+                        "min": round(float(np.min(roc)), 4),
+                        "max": round(float(np.max(roc)), 4)} if roc else {}}
 
 
 def save_report(summary: dict[str, Any], base_dir: Path, cfg: dict[str, Any],
@@ -160,18 +184,28 @@ def print_report(summary: dict[str, Any]) -> None:
     print(f"  {summary['evaluables']}/{summary['pliegues']} pliegues evaluables")
     if summary["no_evaluables"]:
         print(f"  no evaluables (maquina mas corta que el aviso exigido): {summary['no_evaluables']}")
-    hdr = f"  {'maquina':24}{'accuracy':>10}{'FN':>6}{'FP':>6}{'aviso d':>10}"
+    hdr = (f"  {'maquina':24}{'accuracy':>10}{'PR-AUC':>9}{'(base)':>9}"
+           f"{'ROC-AUC':>9}{'FN':>6}{'FP':>6}{'aviso d':>9}")
     print(hdr)
     for f in summary["pliegues_detalle"]:
         if not f["evaluable"]:
             print(f"  {f['descripcion']:24}{'— no evaluable —':>32}")
             continue
-        print(f"  {f['descripcion']:24}{f['accuracy']:>10}{f.get('fn', 0):>6}"
-              f"{f.get('fp', 0):>6}{f.get('lead_time_days', 0):>10}")
+        print(f"  {f['descripcion']:24}{f['accuracy']:>10}{f.get('pr_auc', 0):>9}"
+              f"{f.get('pr_auc_base', 0):>9}{f.get('roc_auc', 0):>9}{f.get('fn', 0):>6}"
+              f"{f.get('fp', 0):>6}{f.get('lead_time_days', 0):>9}")
     if "accuracy" in summary:
         a, l = summary["accuracy"], summary["aviso_dias"]
         print(f"\n  accuracy : mediana {a['mediana']}  rango [{a['min']}, {a['max']}]"
               f"  · cumplen {a['pliegues_que_cumplen']}/{summary['evaluables']}")
         print(f"  aviso    : mediana {l['mediana']} d  rango [{l['min']}, {l['max']}]"
               f"  · cumplen {l['pliegues_que_cumplen']}/{summary['evaluables']}")
+    if summary.get("pr_auc"):
+        pa, ra = summary["pr_auc"], summary.get("roc_auc") or {}
+        print(f"  PR-AUC   : mediana {pa['mediana']}  rango [{pa['min']}, {pa['max']}]"
+              f"  · base (prevalencia) {pa['base_mediana']}"
+              f"  · margen {pa['margen_sobre_base_mediana']:+}")
+        if ra:
+            print(f"  ROC-AUC  : mediana {ra['mediana']}  rango [{ra['min']}, {ra['max']}]")
+    if "accuracy" in summary:
         print(f"  VEREDICTO: {summary['veredicto']}")

@@ -151,6 +151,43 @@ falta no son gigabytes, son **eventos de fallo**: aquí hay 4.
 
 Reproducir: `python run.py --cross-validate nasa_ims_bearing --cv-group test`
 
+### AUC: la métrica que hay que mirar, y por qué
+
+La accuracy de este repositorio se mide **después** de elegir el umbral por coste, así que
+mezcla dos cosas: si el modelo ordena bien los casos y si el corte está bien puesto. Peor
+aún, con clases desbalanceadas engaña en las dos direcciones. Por eso `evaluate()` reporta
+también **ROC-AUC y PR-AUC**, sin umbral, y el PR-AUC va siempre con su línea base (la
+prevalencia de la clase fallo), porque un PR-AUC suelto no significa nada.
+
+| | C-MAPSS | IMS (reservando el banco entero) |
+|---|---|---|
+| Accuracy | 0,9796 | 0,6129 |
+| Accuracy de no predecir nada | 0,9449 | 0,8368 |
+| **ROC-AUC** | **0,996** | **0,539** |
+| PR-AUC | 0,931 | 0,629 |
+| Base del PR-AUC (prevalencia) | 0,055 | 0,598 |
+| **Margen sobre la base** | **+0,876** | **+0,031** |
+
+Lo que esto corrige de las tablas anteriores:
+
+* **En C-MAPSS hay señal de verdad.** El titular «97,96 % de accuracy» suena flojo al lado
+  del 94,49 % que saca no predecir nada, pero el ROC-AUC de 0,996 y un PR-AUC 17 veces por
+  encima de su base dicen que el modelo discrimina excelentemente. La accuracy le hacía
+  un flaco favor.
+* **En IMS no hay ninguna.** ROC-AUC 0,539 es una moneda al aire, y el pliegue del 1er
+  ensayo sale en 0,4952, por debajo del azar. Aquel `accuracy 0,8264` era íntegramente
+  prevalencia: el 83,68 % de sus ventanas caen dentro de la ventana de alarma, así que
+  alarmar siempre ya puntúa 0,84. **No había modelo debajo de ese número.**
+* **El problema de los 1.609 falsos positivos del 3er ensayo no era el umbral.** Si el
+  modelo ordenara bien y solo estuviera mal calibrado, el PR-AUC sería alto; está a +0,031
+  de su base. No discrimina, y eso no se arregla recalibrando.
+
+**Regla para lo que venga:** reportar AUC como métrica principal, y la accuracy solo
+acompañada de su línea base trivial. Cualquier accuracy de este repositorio sin esas dos
+cifras al lado es ilegible.
+
+Reproducir: `python run.py --cross-validate nasa_ims_bearing --cv-group test`
+
 ### Qué hay que leer de estos números
 
 1. **El objetivo se cumple en C-MAPSS y no se cumple en IMS.** IMS es vibración real de
