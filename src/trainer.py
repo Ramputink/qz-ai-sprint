@@ -125,6 +125,12 @@ class RulTask:
         self.yva = torch.as_tensor(y[m_val]).to(dev)
         self.unit_va = unit[m_val]
         self.t_va = t_idx[m_val]
+        # Vida total de la maquina a la que pertenece cada ventana de validacion.
+        # Permite expresar el aviso como FRACCION DE VIDA en vez de en dias absolutos:
+        # "10 dias" es el 5,7 % de la vida de un motor C-MAPSS y el 83 % de la de un
+        # ensayo IMS, asi que en dias absolutos no se esta preguntando lo mismo.
+        vida = {int(u): float(y[unit == u].max()) for u in units}
+        self.vida_va = np.array([vida[int(u)] for u in self.unit_va], dtype=np.float32)
         self.n_features = X.shape[-1]
         self.window = X.shape[1]
         self.n_units = int(len(units))
@@ -415,8 +421,15 @@ class StageTrainer:
         pred = self._predict(model if model is not None else self.model, task.Xva)
         true = task.yva.cpu().numpy()
 
-        # etiqueta binaria: el fallo cae dentro del horizonte de aviso exigido
-        y_bin = (true <= task.horizon).astype(int)
+        # etiqueta binaria: el fallo cae dentro del horizonte de aviso exigido.
+        # `target.lead_fraction` lo expresa como fraccion de la vida de CADA maquina;
+        # si no se fija, se usa el horizonte en dias absolutos del config.
+        frac = (self.cfg.get("target") or {}).get("lead_fraction")
+        if frac:
+            umbral = float(frac) * task.vida_va
+            y_bin = (true <= umbral).astype(int)
+        else:
+            y_bin = (true <= task.horizon).astype(int)
         score = -pred                              # cuanto menos vida queda, mas urgente
         if y_bin.min() == y_bin.max():             # horizonte fuera del rango del dataset
             return {"error": "el horizonte de aviso no parte los datos de validacion",

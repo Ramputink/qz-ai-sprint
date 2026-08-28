@@ -45,9 +45,11 @@ datasets:
   # tier_b_corpus:       # corpus grande para foundation model (opcional, MUY pesado)
   #   - monash_tsf
   #   - lotsa            # 925 GB. Requiere ~1 TB de disco libre en el PC.
-  # tier_c_consumption:  # consumo eléctrico (previsión + NILM)
-  #   - ukdale_csv
-  #   - building_data_genome_2
+  tier_c_consumption:  # CONSUMO ELÉCTRICO — la pregunta prioritaria del proyecto
+    - building_data_genome_2   # 1636 edificios, 2 años horario + meteorología
+    - electricity_load_diagrams # 370 clientes, 15 min, 4 años
+    - steel_industry_energy     # planta siderúrgica: potencia reactiva, CO2
+    - ampds2                    # NILM: 21 submedidas a 1 min
   # tier_d_anomaly_ot:   # anomalía TS + intrusión OT (secundario)
   #   - nab
   #   - smd

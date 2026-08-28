@@ -216,6 +216,58 @@ con el tiempo.
 
 ---
 
+## 3-bis. CONSUMO ELÉCTRICO — la pregunta prioritaria
+
+`python run.py --train-consumo`
+
+Cuatro datasets procesados por `src/data/consumption.py` y tres modelos en
+`src/consumo.py`, todos entrenables desde cero en la RTX 5090.
+
+| Dataset | Escala | Papel |
+|---|---|---|
+| `building_data_genome_2` | 1.440 edificios × 2 años horarios + meteo | Previsión, desperdicio, línea base |
+| `electricity_load_diagrams` | 370 clientes × 4 años | Referencia comparable con literatura |
+| `steel_industry_energy` | Planta, con potencia reactiva y factor de potencia | Ahorro industrial sin tocar producción |
+| `ampds2` | 1.051.200 min × 20 submedidas | Desagregación NILM |
+
+### Resultados (28-08-2026, BDG2, 400 series, 6.000 pasos)
+
+| Métrica | Valor | Lectura |
+|---|---|---|
+| MAE previsión 24 h | 10,14 | — |
+| MAE base ingenua (misma hora, semana pasada) | 19,15 | — |
+| **Skill vs base** | **+0,4704** | El modelo le gana un 47 % a no hacer nada |
+| CV(RMSE) | 31,32 % | **Falla ASHRAE G14 (<25 %)** |
+| NMBE | 0,10 % | Sin sesgo |
+| Ahorro aparente sin intervención | **0,096 %** | La línea base no inventa ahorros |
+| NILM, skill medio vs media por circuito | +0,4477 | Con 3 circuitos en negativo |
+
+**Lo que se puede afirmar y lo que no.** Hay señal real: un +47 % sobre la base
+ingenua es una mejora sustancial, y a diferencia del bloque predictivo aquí el
+modelo sí supera claramente a lo trivial. La línea base contrafactual es
+prácticamente insesgada (NMBE 0,10 %) y sobre datos SIN intervención detecta un
+ahorro aparente de solo 0,096 %: eso fija el suelo de credibilidad — cualquier
+ahorro reportado por debajo de ~0,2 % es ruido del método, no una mejora.
+
+**Pero la línea base todavía NO es acreditable.** ASHRAE Guideline 14 exige
+CV(RMSE) < 25 % en datos horarios para aceptar una línea base de ahorro, y estamos
+en 31,32 %. Es insesgada pero demasiado dispersa para certificar un ahorro ante un
+tercero.
+
+**Un detalle que conviene no pasar por alto:** al subir de 600 a 6.000 pasos el MAE
+mejoró (11,49 → 10,14) pero el CV(RMSE) EMPEORÓ (29,16 % → 31,32 %). No es una
+anomalía: la pérdida es L1, que optimiza la mediana, así que el modelo afina el
+caso típico y se descuida en los picos, que es justo lo que penaliza el RMSE. Si el
+objetivo es acreditar la línea base, hay que entrenar con una pérdida alineada al
+RMSE (L2 o Huber), no seguir entrenando con L1.
+
+**NILM:** funciona de media (+0,4477) pero falla en circuitos concretos —`meter9`
+sale en **-0,141**, o sea peor que predecir su consumo medio—. Son cargas casi
+constantes o muy estocásticas, donde no hay forma que aprender. Reportar solo la
+media escondería eso.
+
+---
+
 ## 4. Estructura
 
 ```

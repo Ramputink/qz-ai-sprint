@@ -28,6 +28,7 @@ class DatasetSpec:
     kind: str = ""
     files: tuple[str, ...] = field(default_factory=tuple)   # para http_multi
     extract: bool = True
+    filename: str = ""   # nombre a dar al fichero cuando la URL no lo lleva
     optional: bool = False   # si falla, no se considera error del sprint
     notes: str = ""
 
@@ -102,15 +103,40 @@ REGISTRY: dict[str, DatasetSpec] = {
         location="Salesforce/lotsa_data",
         notes="925 GB. Solo si hay ~1 TB libre y dias de margen: preentreno del foundation model."),
 
-    # ---------------- Tier C: consumo electrico ---------------------------------
-    "ukdale_csv": DatasetSpec(
-        key="ukdale_csv", method="http", gb=3.5, kind="consumption", optional=True,
-        location="https://data.ukedc.rl.ac.uk/simplebrowse/edc/efficiency/residential/EnergyConsumption/Domestic/UK-DALE-2017/UK-DALE-disaggregated/ukdale.zip",
-        notes="UK-DALE desagregado (NILM). Servidor lento; opcional en sprint corto."),
+    # ---------------- Tier C: CONSUMO ELECTRICO (prioritario) -------------------
+    # Este es el bloque que responde a "se puede optimizar el consumo". Verificado
+    # el 2026-08-28.
     "building_data_genome_2": DatasetSpec(
-        key="building_data_genome_2", method="http", gb=1.2, kind="consumption", optional=True,
-        location="https://github.com/buds-lab/building-data-genome-project-2/archive/refs/heads/master.zip",
-        notes="1636 edificios, consumo horario 2 anos (prevision + benchmarking)."),
+        key="building_data_genome_2", method="http", gb=0.6, kind="consumption",
+        location="https://zenodo.org/api/records/3887306/files/buds-lab/building-data-genome-project-2-v1.0.zip/content",
+        filename="bdg2_v1.0.zip",
+        notes="BDG2: 1636 edificios reales, 2 anos de consumo horario CON meteorologia y "
+              "metadatos (uso, superficie, ano). Es el mejor punto de partida: sirve a la vez "
+              "para prevision de carga, deteccion de desperdicio y linea base de ahorro. "
+              "OJO: el zip de GitHub NO vale, sus CSV son punteros de Git LFS; hay que bajarlo "
+              "de Zenodo, que sirve los datos de verdad."),
+    "electricity_load_diagrams": DatasetSpec(
+        key="electricity_load_diagrams", method="http", gb=0.26, kind="consumption",
+        location="https://archive.ics.uci.edu/static/public/321/electricityloaddiagrams20112014.zip",
+        notes="370 clientes, 15 min, 4 anos. Referencia clasica de prevision de carga: "
+              "permite comparar contra resultados publicados."),
+    "steel_industry_energy": DatasetSpec(
+        key="steel_industry_energy", method="http", gb=0.001, kind="consumption",
+        location="https://archive.ics.uci.edu/static/public/851/steel+industry+energy+consumption.zip",
+        notes="Planta siderurgica: consumo horario con potencia REACTIVA, factor de potencia, "
+              "CO2 y tipo de carga. Pequeno, pero es el unico industrial de verdad y trae las "
+              "variables sobre las que se actua para optimizar."),
+    "ampds2": DatasetSpec(
+        key="ampds2", method="http", gb=0.31, kind="consumption", optional=True,
+        location="https://dataverse.harvard.edu/api/access/datafile/3661112",
+        extract=False, filename="AMPds2.h5",
+        notes="AMPds2: 2 anos a 1 min con 21 submedidas -> desagregacion NILM (saber DONDE "
+              "se va la energia sin instrumentar cada maquina)."),
+    "ukdale_csv": DatasetSpec(
+        key="ukdale_csv", method="manual", gb=3.5, kind="consumption", optional=True,
+        location="https://data.ukedc.rl.ac.uk/simplebrowse/edc/efficiency/residential/EnergyConsumption/Domestic/UK-DALE-2017/",
+        notes="NILM residencial. La URL directa dejo de servir el zip (devuelve HTML) el "
+              "2026-08-28; hay que navegar el portal. AMPds2 cubre el mismo papel."),
 
     # ---------------- Tier D: anomalia TS + intrusion OT ------------------------
     "nab": DatasetSpec(

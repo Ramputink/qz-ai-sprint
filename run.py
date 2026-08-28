@@ -68,6 +68,15 @@ def main(argv: list[str] | None = None) -> int:
                     help="agrupar los pliegues por un campo del meta (en IMS: 'test'). "
                          "Reserva de golpe las máquinas que comparten banco de ensayo, que "
                          "comparten eje e instante de fallo: sin esto hay fuga entre ellas.")
+    ap.add_argument("--train-consumo", action="store_true",
+                    help="CONSUMO ELÉCTRICO: previsión de carga + detección de desperdicio + "
+                         "línea base contrafactual de ahorro (+ NILM). Es el bloque que "
+                         "responde a si se puede optimizar el consumo.")
+    ap.add_argument("--consumo-dataset", default="building_data_genome_2",
+                    help="dataset de consumo (building_data_genome_2 | "
+                         "electricity_load_diagrams | steel_industry_energy)")
+    ap.add_argument("--consumo-pasos", type=int, default=3000, help="pasos de entrenamiento")
+    ap.add_argument("--sin-nilm", action="store_true", help="omitir la desagregación NILM")
     ap.add_argument("--feature-slice", metavar="A:B",
                     help="usar solo las columnas de features [A,B) — para ablaciones")
     a = ap.parse_args(argv)
@@ -133,6 +142,34 @@ def main(argv: list[str] | None = None) -> int:
             print(f"     fallo {l['onset']} → alarma {l['alarm']}  ({l['lead_days']} días antes)")
         print(f"  trials HP     : {m['n_trials']}   tiempo: {m['train_seconds']} s")
         print(f"  guardado en   : artifacts/rtf_result_{m['device']}.json")
+        return 0
+
+    if a.train_consumo:
+        from src.consumo import correr_todo
+        from src.logging_utils import RunLogger
+        from src.processview import ProcessView
+        p = cfg["paths"]
+        logger = RunLogger(HERE / p["logs_dir"])
+        pv = ProcessView(HERE / p["processview_dir"],
+                         refresh_sec=cfg["run"].get("processview_refresh_sec", 10))
+        inf = correr_todo(cfg, HERE, logger, pv, dataset=a.consumo_dataset,
+                          pasos=a.consumo_pasos, nilm=not a.sin_nilm)
+        f = inf["prevision"]
+        print()
+        print("=== CONSUMO ELÉCTRICO ===")
+        print(f"  dataset      : {f['dataset']}  ({f['series']} series)")
+        print(f"  previsión {f['horizonte_h']}h : MAE {f['mae']}  ·  base ingenua {f['mae_base_ingenua']}")
+        print(f"  SKILL vs base: {f['skill_vs_ingenua']:+.4f}   <- 0 = empatar con no hacer nada")
+        print(f"  CV(RMSE)     : {f['cv_rmse_pct']} %   ASHRAE G14 (<25%): {f['cumple_ashrae_g14']}")
+        d = inf["desperdicio"]
+        print(f"  desperdicio  : {d['pct_ventanas_con_exceso']} % de ventanas con exceso sostenido")
+        b = inf["linea_base_ahorro"]
+        print(f"  línea base   : ahorro aparente {b['ahorro_aparente_pct']} % (sin intervención "
+              f"debería rondar 0) · NMBE {b['nmbe_pct']} %")
+        if isinstance(inf.get("nilm"), dict) and "total" in inf["nilm"]:
+            n = inf["nilm"]["total"]
+            print(f"  NILM         : MAE {n['mae']} W  ·  skill vs media {n['skill_vs_ingenua']:+.4f}")
+        print(f"  informe      : {inf['_fichero']}")
         return 0
 
     if a.cross_validate:

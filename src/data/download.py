@@ -132,6 +132,27 @@ def _looks_like_web_page(path: Path) -> bool:
     return head.startswith((b"<!doctype html", b"<html", b"{\"", b"<?xml"))
 
 
+def _lfs_pointers(d: Path) -> list[str]:
+    """Ficheros que son PUNTEROS de Git LFS en vez de datos.
+
+    Un zip descargado del archivo de GitHub de un repo que usa LFS trae, en lugar de
+    cada fichero grande, un texto de 130 bytes que empieza por
+    `version https://git-lfs.github.com/spec/v1`. El zip es valido, se extrae sin
+    error y deja un CSV de 3 lineas: el fallo no aparece hasta que el preprocesado
+    lee columnas que no existen. Le paso a BDG2.
+    """
+    malos = []
+    for f in d.rglob("*"):
+        if not f.is_file() or f.stat().st_size > 1024:
+            continue
+        try:
+            if f.open("rb").read(45).startswith(b"version https://git-lfs.github.com"):
+                malos.append(f.name)
+        except Exception:
+            continue
+    return malos
+
+
 def _extract(archive: Path, out_dir: Path, cb: ProgressCB, key: str) -> None:
     """Extrae el contenedor descargado y, recursivamente, los contenedores que venga
     dentro (los paquetes NASA anidan un .zip/.7z por subconjunto).
@@ -176,7 +197,9 @@ def _write_marker(d: Path, spec: DatasetSpec, extra: dict[str, Any]) -> None:
 
 # --- un dataset por metodo -------------------------------------------------
 def _do_http(spec: DatasetSpec, d: Path, cb: ProgressCB) -> dict[str, Any]:
-    name = spec.location.split("/")[-1].split("?")[0]
+    # Algunas fuentes (Dataverse) sirven por id numerico sin extension: el spec puede
+    # dar el nombre real, que es lo que luego busca el preprocesado.
+    name = spec.filename or spec.location.split("/")[-1].split("?")[0]
     name = name.replace("+", "_")
     archive = d / name
     if not archive.exists():
@@ -191,6 +214,11 @@ def _do_http(spec: DatasetSpec, d: Path, cb: ProgressCB) -> dict[str, Any]:
         _extract(archive, d, cb, spec.key)
         if not any(p.is_file() and p != archive for p in d.rglob("*")):
             raise RuntimeError(f"el contenedor {archive.name} no produjo ningun fichero")
+        punteros = _lfs_pointers(d)
+        if punteros:
+            raise RuntimeError(
+                f"{len(punteros)} ficheros son punteros de Git LFS, no datos "
+                f"(p.ej. {punteros[:3]}). Usa la fuente que sirve el contenido real")
     return {"archive": archive.name, "bytes": size}
 
 
