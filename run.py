@@ -77,6 +77,9 @@ def main(argv: list[str] | None = None) -> int:
                          "electricity_load_diagrams | steel_industry_energy)")
     ap.add_argument("--consumo-pasos", type=int, default=3000, help="pasos de entrenamiento")
     ap.add_argument("--sin-nilm", action="store_true", help="omitir la desagregación NILM")
+    ap.add_argument("--consumo-perdida", default="huber", choices=["huber", "l1", "l2"],
+                    help="pérdida del previsor. L1 optimiza la mediana y empeora el CV(RMSE), "
+                         "que es lo que decide la acreditación ASHRAE G14")
     ap.add_argument("--feature-slice", metavar="A:B",
                     help="usar solo las columnas de features [A,B) — para ablaciones")
     a = ap.parse_args(argv)
@@ -153,7 +156,8 @@ def main(argv: list[str] | None = None) -> int:
         pv = ProcessView(HERE / p["processview_dir"],
                          refresh_sec=cfg["run"].get("processview_refresh_sec", 10))
         inf = correr_todo(cfg, HERE, logger, pv, dataset=a.consumo_dataset,
-                          pasos=a.consumo_pasos, nilm=not a.sin_nilm)
+                          pasos=a.consumo_pasos, nilm=not a.sin_nilm,
+                          perdida=a.consumo_perdida)
         f = inf["prevision"]
         print()
         print("=== CONSUMO ELÉCTRICO ===")

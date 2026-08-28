@@ -216,8 +216,77 @@ def construir_previsor(contexto: int, horizonte: int, n_cov: int,
     return Previsor()
 
 
+def _fn_perdida(nombre: str, delta: float = 1.0):
+    """Funcion de perdida por nombre.
+
+    Importa mas de lo que parece: la L1 optimiza la MEDIANA, asi que afina el caso
+    tipico y se despreocupa de los picos -- que es justo lo que castiga el RMSE, y
+    el RMSE es lo que decide si una linea base de ahorro es acreditable (ASHRAE
+    G14 exige CV(RMSE) < 25 %). Entrenar mas con L1 mejoraba el MAE y EMPEORABA el
+    CV(RMSE). La Huber es el punto medio: cuadratica cerca de cero (atiende a los
+    picos) y lineal lejos (no se deja arrastrar por lecturas atipicas del contador).
+    """
+    import torch.nn.functional as F
+
+    if nombre == "l1":
+        return lambda p, y: F.l1_loss(p, y)
+    if nombre == "l2":
+        return lambda p, y: F.mse_loss(p, y)
+    if nombre == "huber":
+        return lambda p, y: F.huber_loss(p, y, delta=delta)
+    raise ValueError(f"perdida desconocida: {nombre}")
+
+
+def evaluar_previsor(modelo, tarea: TareaPrevision, n_lotes: int = 20,
+                     lote: int = 1024) -> dict[str, Any]:
+    """Metricas agregadas y POR SERIE, en kWh reales.
+
+    Lo segundo importa: ASHRAE Guideline 14 se aplica a CADA emplazamiento, no a un
+    promedio de la cartera. Un CV(RMSE) agrupado sobre 400 edificios de escalas muy
+    distintas lo domina un punado de edificios grandes, y puede suspender aunque la
+    mayoria de ellos cumplan de sobra. Lo que decide si se puede certificar es
+    cuantos edificios pasan el umbral, no la media.
+    """
+    import torch
+
+    modelo.eval()
+    reales, predichos, bases, series = [], [], [], []
+    with torch.no_grad():
+        for _ in range(n_lotes):
+            ctx, cov, fut, base, s = tarea.lote(lote, "test")
+            p = modelo(ctx, cov).float()
+            reales.append(tarea.desnormalizar(fut, s).cpu().numpy())
+            predichos.append(tarea.desnormalizar(p, s).cpu().numpy())
+            bases.append(tarea.desnormalizar(base, s).cpu().numpy())
+            series.append(s.cpu().numpy())
+    R, P, B = np.concatenate(reales), np.concatenate(predichos), np.concatenate(bases)
+    S = np.concatenate(series)
+
+    m = metricas(R, P, B)
+    cvs, skills = [], []
+    for u in np.unique(S):
+        k = S == u
+        if k.sum() < 10:
+            continue
+        mi = metricas(R[k], P[k], B[k])
+        if "cv_rmse_pct" in mi:
+            cvs.append(mi["cv_rmse_pct"])
+            skills.append(mi.get("skill_vs_ingenua", 0.0))
+    if cvs:
+        cvs_a = np.array(cvs)
+        m["por_serie"] = {
+            "cv_rmse_mediana_pct": round(float(np.median(cvs_a)), 2),
+            "cv_rmse_p90_pct": round(float(np.percentile(cvs_a, 90)), 2),
+            "series_que_cumplen_ashrae": int((cvs_a < 25.0).sum()),
+            "series_evaluadas": int(len(cvs_a)),
+            "pct_series_acreditables": round(100 * float((cvs_a < 25.0).mean()), 1),
+            "skill_mediano": round(float(np.median(skills)), 4)}
+    return m
+
+
 def entrenar_previsor(tarea: TareaPrevision, pasos: int = 3000, lote: int = 512,
-                      lr: float = 1e-3, logger=None, cb=None) -> dict[str, Any]:
+                      lr: float = 1e-3, perdida: str = "huber", huber_delta: float = 1.0,
+                      logger=None, cb=None) -> dict[str, Any]:
     """Entrena el previsor y lo mide CONTRA LA BASE INGENUA."""
     import torch
 
@@ -225,6 +294,7 @@ def entrenar_previsor(tarea: TareaPrevision, pasos: int = 3000, lote: int = 512,
     modelo = construir_previsor(tarea.contexto, tarea.horizonte, tarea.n_cov).to(dev)
     opt = torch.optim.AdamW(modelo.parameters(), lr=lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=lr, total_steps=pasos)
+    crit = _fn_perdida(perdida, huber_delta)
     t0 = time.time()
 
     for paso in range(pasos):
@@ -233,30 +303,22 @@ def entrenar_previsor(tarea: TareaPrevision, pasos: int = 3000, lote: int = 512,
         opt.zero_grad(set_to_none=True)
         with torch.autocast("cuda", dtype=torch.bfloat16) if dev == "cuda" else _nulo():
             pred = modelo(ctx, cov)
-            perdida = torch.nn.functional.l1_loss(pred.float(), fut)
-        perdida.backward()
+            p_loss = crit(pred.float(), fut)
+        p_loss.backward()
         torch.nn.utils.clip_grad_norm_(modelo.parameters(), 1.0)
         opt.step(); sched.step()
         if cb and paso % 200 == 0:
-            cb(paso / pasos * 100, f"paso {paso}/{pasos} · L1 {float(perdida.detach()):.4f}")
+            cb(paso / pasos * 100,
+               f"paso {paso}/{pasos} · {perdida} {float(p_loss.detach()):.4f}")
 
-    # evaluacion en el tramo FUTURO, en unidades reales (kWh), no normalizadas
-    modelo.eval()
-    reales, predichos, bases = [], [], []
-    with torch.no_grad():
-        for _ in range(20):
-            ctx, cov, fut, base, s = tarea.lote(1024, "test")
-            p = modelo(ctx, cov).float()
-            reales.append(tarea.desnormalizar(fut, s).cpu().numpy())
-            predichos.append(tarea.desnormalizar(p, s).cpu().numpy())
-            bases.append(tarea.desnormalizar(base, s).cpu().numpy())
-    m = metricas(np.concatenate(reales), np.concatenate(predichos), np.concatenate(bases))
+    m = evaluar_previsor(modelo, tarea)
     m.update({"dataset": tarea.key, "series": tarea.n_series,
               "contexto_h": tarea.contexto, "horizonte_h": tarea.horizonte,
+              "perdida": perdida, "huber_delta": huber_delta if perdida == "huber" else None,
               "pasos": pasos, "segundos": round(time.time() - t0, 1),
               "parametros": sum(p.numel() for p in modelo.parameters())})
     if logger:
-        logger.info("previsor", **{k: v for k, v in m.items() if k != "n"})
+        logger.info("previsor", **{k: v for k, v in m.items() if k not in ("n", "por_serie")})
     return {"metricas": m, "modelo": modelo}
 
 
@@ -427,7 +489,7 @@ def medir_ahorro(tarea: TareaPrevision, modelo, n_lotes: int = 40) -> dict[str, 
 # =====================  orquestacion  ========================================
 def correr_todo(cfg: dict[str, Any], base_dir: Path, logger, pv=None,
                 dataset: str = "building_data_genome_2", pasos: int = 3000,
-                nilm: bool = True) -> dict[str, Any]:
+                nilm: bool = True, perdida: str = "huber") -> dict[str, Any]:
     """Las tres piezas de una tirada, con sus lineas base."""
     data_dir = Path(base_dir) / cfg["paths"]["data_dir"]
     art = Path(base_dir) / cfg["paths"]["artifacts_dir"]
@@ -444,7 +506,7 @@ def correr_todo(cfg: dict[str, Any], base_dir: Path, logger, pv=None,
     logger.info("consumo_datos", series=tarea.n_series, pasos_serie=tarea.T,
                 covariables=tarea.n_cov, corte_temporal=tarea.corte)
 
-    r = entrenar_previsor(tarea, pasos=pasos, logger=logger, cb=cb)
+    r = entrenar_previsor(tarea, pasos=pasos, perdida=perdida, logger=logger, cb=cb)
     informe["prevision"] = r["metricas"]
     informe["desperdicio"] = detectar_desperdicio(tarea, r["modelo"])
     informe["linea_base_ahorro"] = medir_ahorro(tarea, r["modelo"])

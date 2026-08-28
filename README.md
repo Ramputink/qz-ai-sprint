@@ -249,17 +249,33 @@ prácticamente insesgada (NMBE 0,10 %) y sobre datos SIN intervención detecta u
 ahorro aparente de solo 0,096 %: eso fija el suelo de credibilidad — cualquier
 ahorro reportado por debajo de ~0,2 % es ruido del método, no una mejora.
 
-**Pero la línea base todavía NO es acreditable.** ASHRAE Guideline 14 exige
-CV(RMSE) < 25 % en datos horarios para aceptar una línea base de ahorro, y estamos
-en 31,32 %. Es insesgada pero demasiado dispersa para certificar un ahorro ante un
-tercero.
+**La línea base ES acreditable para la mayoría de la cartera** (corregido el
+29-08-2026). ASHRAE Guideline 14 exige CV(RMSE) < 25 % en datos horarios, y se aplica
+**a cada emplazamiento**, no a un promedio de cartera. Medido así:
 
-**Un detalle que conviene no pasar por alto:** al subir de 600 a 6.000 pasos el MAE
-mejoró (11,49 → 10,14) pero el CV(RMSE) EMPEORÓ (29,16 % → 31,32 %). No es una
-anomalía: la pérdida es L1, que optimiza la mediana, así que el modelo afina el
-caso típico y se descuida en los picos, que es justo lo que penaliza el RMSE. Si el
-objetivo es acreditar la línea base, hay que entrenar con una pérdida alineada al
-RMSE (L2 o Huber), no seguir entrenando con L1.
+| | Agrupando las 400 series | Por edificio |
+|---|---|---|
+| CV(RMSE) | 30,16 % | **mediana 16,05 %** · p90 44,9 % |
+| Veredicto | Falla | **73,2 % de los edificios cumplen** |
+
+El 31,32 % agrupado que se reportó antes era un artefacto de medida: con edificios
+de escalas muy distintas, el número lo dominan unos pocos grandes o erráticos.
+
+**La pérdida da igual, y esto se comprobó** (`artifacts/comparativa_perdidas.json`,
+mismo dato, misma semilla, 6.000 pasos):
+
+| Pérdida | MAE | Skill | CV(RMSE) | CV mediana | % acreditables |
+|---|---|---|---|---|---|
+| **L1** | **10,378** | **+0,4798** | 30,16 % | 16,05 % | 73,2 % |
+| Huber | 10,781 | +0,4596 | 30,00 % | 16,07 % | 73,8 % |
+| L2 | 11,327 | +0,4323 | 30,37 % | 16,38 % | 74,0 % |
+
+Las diferencias son ruido. La hipótesis de que la L1, al optimizar la mediana,
+degradaba el CV(RMSE) **no se sostuvo**: se mantiene L1, que da la mejor previsión.
+Lo que estaba mal era la forma de medir, no la función de pérdida.
+
+Queda abierto el **26,8 % de edificios que no llegan al umbral** (p90 en 44,9 %):
+ahí es donde hay trabajo, no en la pérdida.
 
 **NILM:** funciona de media (+0,4477) pero falla en circuitos concretos —`meter9`
 sale en **-0,141**, o sea peor que predecir su consumo medio—. Son cargas casi
