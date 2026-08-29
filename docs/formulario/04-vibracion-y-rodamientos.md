@@ -6,23 +6,42 @@ implementadas y medidas; su rendimiento sobre IMS está en
 
 ## Estadísticos en el dominio del tiempo
 
-Sobre una señal de vibración `x[i]` de `N` muestras, centrada (`x = x - mean(x)`):
+Sobre una señal de vibración $x_i$ de $N$ muestras, previamente centrada
+($x \leftarrow x - \bar{x}$):
 
-```
-RMS      = sqrt( mean( x^2 ) )                       energía global de la vibración
-std      = sqrt( mean( (x - mean(x))^2 ) )
-pico     = max( |x| )
-p2p      = max(x) - min(x)                           pico a pico
+$$
+\mathrm{RMS} = \sqrt{\frac{1}{N}\sum_{i=1}^{N} x_i^{2}}
+\qquad
+\sigma = \sqrt{\frac{1}{N}\sum_{i=1}^{N}\left(x_i - \bar{x}\right)^{2}}
+$$
 
-curtosis = mean( ((x - mu) / sigma)^4 )              "puntiagudez"  (normal = 3)
-asimetria= mean( ((x - mu) / sigma)^3 )              (simétrica = 0)
+$$
+x_{\text{pico}} = \max_i |x_i|
+\qquad
+x_{\text{p2p}} = \max_i x_i - \min_i x_i
+$$
 
-cresta   = pico / RMS                                 cuánto sobresale el pico
-forma    = RMS / mean(|x|)
-impulso  = pico / mean(|x|)
-holgura  = pico / ( mean( sqrt(|x|) ) )^2
-entropia = - sum( p * log(p) )    con p = espectro normalizado
-```
+$$
+\text{curtosis} = \frac{1}{N}\sum_{i=1}^{N}\left(\frac{x_i-\bar{x}}{\sigma}\right)^{4}
+\quad (\text{normal} = 3)
+\qquad
+\text{asimetría} = \frac{1}{N}\sum_{i=1}^{N}\left(\frac{x_i-\bar{x}}{\sigma}\right)^{3}
+$$
+
+$$
+C_{\text{cresta}} = \frac{x_{\text{pico}}}{\mathrm{RMS}}
+\qquad
+C_{\text{forma}} = \frac{\mathrm{RMS}}{\overline{|x|}}
+\qquad
+C_{\text{impulso}} = \frac{x_{\text{pico}}}{\overline{|x|}}
+\qquad
+C_{\text{holgura}} = \frac{x_{\text{pico}}}{\left(\overline{\sqrt{|x|}}\right)^{2}}
+$$
+
+$$
+H = -\sum_{k} p_k \log p_k
+\qquad\text{con } p_k = \frac{|X_k|^2}{\sum_j |X_j|^2}
+$$
 
 **Por qué hay tantos y no basta el RMS.** El RMS crece cuando la vibración global sube,
 pero un defecto incipiente no sube el nivel global: introduce **impactos cortos y
@@ -41,30 +60,34 @@ sensible de todos a impactos aislados — y también el más ruidoso.
 ## Frecuencias características de defecto
 
 Aquí está el salto de calidad. Un rodamiento con un defecto en una pista **golpea a una
-frecuencia exacta**, deducible de su geometría:
+frecuencia exacta**, deducible de su geometría.
 
-```
-Datos:
-  f_r  frecuencia de giro del eje        [Hz]  = RPM / 60
-  n    número de elementos rodantes
-  d    diámetro del elemento rodante
-  D    diámetro primitivo (pitch)
-  phi  ángulo de contacto                [rad]
+Con $f_r$ la frecuencia de giro del eje $[\text{Hz}]$, $n$ el número de elementos
+rodantes, $d$ su diámetro, $D$ el diámetro primitivo y $\varphi$ el ángulo de contacto,
+definimos:
 
-  ratio = (d / D) * cos(phi)
+$$
+r = \frac{d}{D}\cos\varphi
+$$
 
-FTF  = (f_r / 2) * ( 1 - ratio )                    jaula
-BPFO = (n / 2) * f_r * ( 1 - ratio )                pista externa   = n * FTF
-BPFI = (n / 2) * f_r * ( 1 + ratio )                pista interna
-BSF  = (D / (2*d)) * f_r * ( 1 - ratio^2 )          elemento rodante
-```
+$$
+\mathrm{FTF} = \frac{f_r}{2}\left(1 - r\right)
+\qquad
+\mathrm{BPFO} = \frac{n\,f_r}{2}\left(1 - r\right) = n\cdot\mathrm{FTF}
+$$
+
+$$
+\mathrm{BPFI} = \frac{n\,f_r}{2}\left(1 + r\right)
+\qquad
+\mathrm{BSF} = \frac{D}{2d}\,f_r\left(1 - r^{2}\right)
+$$
 
 | Sigla | Significado |
 |---|---|
-| FTF | *Fundamental Train Frequency* — la jaula que separa los elementos |
-| BPFO | *Ball Pass Frequency, Outer race* |
-| BPFI | *Ball Pass Frequency, Inner race* |
-| BSF | *Ball Spin Frequency* |
+| $\mathrm{FTF}$ | *Fundamental Train Frequency* — la jaula que separa los elementos |
+| $\mathrm{BPFO}$ | *Ball Pass Frequency, Outer race* — pista externa |
+| $\mathrm{BPFI}$ | *Ball Pass Frequency, Inner race* — pista interna |
+| $\mathrm{BSF}$ | *Ball Spin Frequency* — elemento rodante |
 
 **La BPFI es siempre mayor que la BPFO** porque la pista interna gira con el eje y los
 elementos la recorren más veces por vuelta. Si en un espectro aparece un pico a la
@@ -73,18 +96,21 @@ frecuencia mayor, el defecto está en la pista interna.
 ### Valores del banco IMS
 
 Geometría **documentada por la fuente** (readme del propio dataset): rodamiento Rexnord
-ZA-2115 de doble hilera, 16 elementos por hilera, eje a 2000 RPM constante, muestreo a
-20 kHz.
+ZA-2115 de doble hilera, $n = 16$ elementos por hilera, $d = 0{,}331$, $D = 2{,}815$,
+$\varphi = 15{,}17^\circ$, eje a 2000 RPM constante, muestreo a 20 kHz.
 
-```
-f_r   = 2000 / 60 = 33,333 Hz
-ratio = (0,331 / 2,815) * cos(15,17 deg) = 0,113489
+$$
+f_r = \frac{2000}{60} = 33{,}333\ \text{Hz}
+\qquad
+r = \frac{0{,}331}{2{,}815}\cos(15{,}17^\circ) = 0{,}113489
+$$
 
-FTF  = 16,667 * (1 - 0,113489)              =  14,78 Hz
-BPFO = 8 * 33,333 * (1 - 0,113489)          = 236,40 Hz
-BPFI = 8 * 33,333 * (1 + 0,113489)          = 296,93 Hz
-BSF  = 4,2523 * 33,333 * (1 - 0,113489^2)   = 139,92 Hz
-```
+| Frecuencia | Cálculo | Valor |
+|---|---|---|
+| $\mathrm{FTF}$ | $16{,}667 \cdot (1 - 0{,}113489)$ | $14{,}78\ \text{Hz}$ |
+| $\mathrm{BPFO}$ | $8 \cdot 33{,}333 \cdot (1 - 0{,}113489)$ | $236{,}40\ \text{Hz}$ |
+| $\mathrm{BPFI}$ | $8 \cdot 33{,}333 \cdot (1 + 0{,}113489)$ | $296{,}93\ \text{Hz}$ |
+| $\mathrm{BSF}$ | $4{,}2523 \cdot 33{,}333 \cdot (1 - 0{,}113489^{2})$ | $139{,}92\ \text{Hz}$ |
 
 Coinciden con los valores publicados para este banco, lo que valida la implementación.
 
@@ -101,23 +127,30 @@ es energéticamente pequeño y queda enterrado.
 
 **La solución:** el impacto excita las **resonancias de alta frecuencia de la carcasa**
 (varios kHz). Esa zona está limpia de ruido mecánico de baja frecuencia. Se filtra ahí,
-se extrae la envolvente y en *su* espectro aparece el golpeteo a BPFO limpio.
+se extrae la envolvente y en *su* espectro aparece el golpeteo a $\mathrm{BPFO}$ limpio.
 
-```
-1. Filtrado paso banda        x_b = bandpass( x, 2000..9500 Hz )
-2. Señal analítica            x_a = hilbert( x_b )          (compleja)
-3. Envolvente                 env = |x_a|
-4. Centrado y ventana         env = (env - mean(env)) * hanning(N)
-5. Espectro de envolvente     E   = |rfft(env)|
-6. Altura relativa del pico   SNR(f) = max(E en f +- 3 bins) / mediana(E)
-```
+$$
+x_b = \mathrm{bandpass}\big(x,\ 2000\text{–}9500\ \text{Hz}\big)
+\qquad
+x_a = \mathcal{H}\{x_b\} \quad\text{(señal analítica)}
+$$
 
-El paso 6 normaliza por el **suelo de ruido** (la mediana del espectro), no por el
+$$
+e(t) = \left|x_a(t)\right|
+\qquad
+E_k = \left|\mathcal{F}\big\{(e - \bar{e}) \cdot w_{\text{hann}}\big\}_k\right|
+$$
+
+$$
+\mathrm{SNR}(f) = \frac{\max\limits_{|f_k - f| \le 3\Delta f} E_k}{\mathrm{mediana}(E)}
+$$
+
+El último paso normaliza por el **suelo de ruido** (la mediana del espectro), no por el
 máximo. Así la cifra es comparable entre instantáneas y entre rodamientos, que es lo que
 permite usarla como feature de un modelo.
 
-La ventana de `± 3 bins` existe porque el régimen no es perfectamente constante y el pico
-se desplaza ligeramente entre instantáneas.
+La ventana de $\pm 3\Delta f$ existe porque el régimen no es perfectamente constante y el
+pico se desplaza ligeramente entre instantáneas.
 
 Se extraen **3 armónicos por cada una de las 4 frecuencias**, más el nivel global de la
 envolvente: 13 features.
@@ -141,9 +174,9 @@ estorban en otro. Es un resultado honesto y limita cuándo merece la pena implem
 
 ## Vida útil restante (RUL)
 
-```
-RUL(t) = t_fallo - t                    [pasos del dataset]
-```
+$$
+\mathrm{RUL}(t) = t_{\text{fallo}} - t
+$$
 
 Con dos decisiones de diseño que resultaron importantes:
 
@@ -151,22 +184,22 @@ Con dos decisiones de diseño que resultaron importantes:
 aprendible: a un rodamiento sano no se le ve en la vibración cuánto le queda, eso depende
 de su variabilidad de fabricación, no de su estado observable.
 
-```
-RUL_etiqueta(t) = min( t_fallo - t , techo )
-```
+$$
+y(t) = \min\big(t_{\text{fallo}} - t,\; \tau\big)
+$$
 
-Si el techo no recorta, se está pidiendo una regresión irresoluble sobre toda la fase
-sana. En C-MAPSS el techo colapsa el 79,5 % de las ventanas; en IMS, con la
+Si el techo $\tau$ no recorta, se está pidiendo una regresión irresoluble sobre toda la
+fase sana. En C-MAPSS el techo colapsa el 79,5 % de las ventanas; en IMS, con la
 configuración inicial, el 0,0 %. **Eran tareas distintas sin que nadie lo hubiera
 decidido.**
 
-**Conversión a días.** Cada dataset tiene su cadencia:
+**Conversión a días.**
 
-```
-dias_de_anticipacion = pasos * horas_por_paso / 24
-```
+$$
+\text{días de anticipación} = \frac{\text{pasos} \cdot h_{\text{paso}}}{24}
+$$
 
-| Dataset | horas_por_paso | Origen |
+| Dataset | $h_{\text{paso}}$ | Origen |
 |---|---|---|
 | IMS | 1,0 (tras promediar 6 instantáneas de 10 min) | **Medido** |
 | MetroPT-3 | 1,0 (remuestreado desde 1 Hz) | **Medido** |
@@ -180,13 +213,14 @@ C-MAPSS heredan ese supuesto** y así consta en el meta de cada producto.
 Un error de RUL no cuesta lo mismo en las dos direcciones: predecir *más* vida de la real
 es un falso negativo peligroso.
 
-```
-err = pred - real
-w   = fn_weight  si err > 0  (optimista)
-      1          si err <= 0 (pesimista)
-
-L = mean( w * err^2 )
-```
+$$
+\mathcal{L} = \frac{1}{N}\sum_{i=1}^{N} w_i \left(\hat{y}_i - y_i\right)^{2}
+\qquad
+w_i = \begin{cases}
+\lambda_{\mathrm{FN}} & \text{si } \hat{y}_i > y_i \quad (\text{optimista}) \\
+1 & \text{si } \hat{y}_i \le y_i \quad (\text{pesimista})
+\end{cases}
+$$
 
 ```python
 # src/models/rul.py::rul_loss

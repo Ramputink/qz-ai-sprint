@@ -17,21 +17,29 @@ auditar. Aquí van juntas.
 | [04 — Vibración y rodamientos](04-vibracion-y-rodamientos.md) | Estadísticos temporales, frecuencias de defecto, envolvente |
 | [05 — Métricas de modelo](05-metricas-de-modelo.md) | Error, skill, AUC, matriz de confusión, RUL |
 
-## Convenio de notación
+## Notación
 
-Las fórmulas van en bloques de código con notación ASCII, no en LaTeX, para que se lean
-igual en GitHub, en un editor de texto o en una terminal.
+Las fórmulas van en **LaTeX**, que GitHub renderiza de forma nativa tanto en línea
+($E = P \cdot t$) como en bloque:
 
-```
-x[i]        muestra i de una señal
-N           número de muestras
-mean(x)     media aritmética
-sqrt(z)     raíz cuadrada
-|x|         valor absoluto
-sum(...)    sumatorio
-```
+$$
+S = \sqrt{P^2 + Q^2}
+$$
 
-Unidades entre corchetes: `[kW]`, `[kWh]`, `[Hz]`, `[%]`.
+Convenio general:
+
+| Símbolo | Significado |
+|---|---|
+| $x_i$ | muestra $i$ de una señal |
+| $N$ | número de muestras |
+| $\bar{x}$ | media aritmética |
+| $\hat{y}$ | valor predicho por un modelo |
+| $\sigma$ | desviación típica |
+| $[\text{kW}]$, $[\text{kWh}]$ | unidades entre corchetes |
+
+Si abres estos documentos en un editor que no renderice LaTeX, verás el código fuente;
+es legible, pero el destino natural de estos ficheros es GitHub o cualquier visor de
+Markdown con soporte matemático.
 
 ## Criterio sobre las constantes
 
