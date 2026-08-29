@@ -67,6 +67,15 @@ def load(data_dir: str | Path, resample: str = "1min", win: int = 60, hop: int =
             progress("resample", i, total)
     df = pd.concat(agg_chunks).groupby(level=0).mean().sort_index()
     df = df.interpolate().dropna()
+    # --- features de DEGRADACIÓN: desviación vs baseline lento (24 h) ---
+    # capta el "alejarse de lo normal" que precede al fallo (mejor lead-time, menos ruido).
+    mean_cols = [c for c in df.columns if c.endswith("_mean")]
+    base24 = df[mean_cols].rolling(1440, min_periods=120).mean()
+    ewm = df[mean_cols].ewm(span=720, min_periods=120).mean()  # tendencia suave
+    for c in mean_cols:
+        df[c + "_dev24h"] = df[c] - base24[c]      # desviación del baseline diario
+        df[c + "_ewmdev"] = df[c] - ewm[c]         # desviación de la tendencia
+    df = df.dropna()
     feat_cols = list(df.columns)
 
     # --- etiquetas por minuto ---
