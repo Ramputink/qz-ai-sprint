@@ -15,8 +15,10 @@ Consecuencia práctica: **no merece la pena descargar más datos del mismo tipo.
 es información *distinta* (condicionar por edificio) o aceptar que hay una fracción de
 edificios poco predecibles y excluirla del alcance.
 
-**¿Qué preprocesado aporta?** Solo `log1p`: skill de +0,3799 a +0,3958 y la brecha
-train/test de 0,527 a 0,175. Ampliar el contexto perjudica. Detalle en
+**¿Qué preprocesado aporta?** Ninguno de forma general. `log1p` ayuda en OEDI
+(+0,3799 → +0,3958) y estorba en BDG2 (+0,4798 → +0,4559); ampliar el contexto hace lo
+contrario en cada uno. Todas las diferencias son de ±0,02 de skill, dentro de la banda de
+ruido. **El preprocesado no es la palanca.** Detalle en
 [02 — Consumo](02-resultados-consumo.md).
 
 ## Por medir

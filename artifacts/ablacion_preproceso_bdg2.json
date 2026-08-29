@@ -1,0 +1,98 @@
+[
+  {
+    "variante": "referencia",
+    "mae": 10.3778,
+    "mae_train": 10.2226,
+    "brecha": 0.1552,
+    "skill": 0.4798,
+    "cv_rmse_mediana_pct": 16.05,
+    "pct_series_acreditables": 73.2,
+    "contexto_h": 168,
+    "horizonte_h": 24,
+    "segundos": 20.3
+  },
+  {
+    "variante": "log1p",
+    "mae": 10.854,
+    "mae_train": 10.9598,
+    "brecha": -0.1058,
+    "skill": 0.4559,
+    "cv_rmse_mediana_pct": 16.52,
+    "pct_series_acreditables": 72.2,
+    "contexto_h": 168,
+    "horizonte_h": 24,
+    "segundos": 19.9
+  },
+  {
+    "variante": "normalizacion robusta",
+    "mae": 10.4856,
+    "mae_train": 10.378,
+    "brecha": 0.1076,
+    "skill": 0.4744,
+    "cv_rmse_mediana_pct": 16.13,
+    "pct_series_acreditables": 74.0,
+    "contexto_h": 168,
+    "horizonte_h": 24,
+    "segundos": 19.5
+  },
+  {
+    "variante": "sin meteorologia",
+    "mae": 10.4555,
+    "mae_train": 10.402,
+    "brecha": 0.0535,
+    "skill": 0.4759,
+    "cv_rmse_mediana_pct": 16.26,
+    "pct_series_acreditables": 74.2,
+    "contexto_h": 168,
+    "horizonte_h": 24,
+    "segundos": 18.9
+  },
+  {
+    "variante": "contexto 336 h",
+    "mae": 10.3194,
+    "mae_train": 9.9445,
+    "brecha": 0.3749,
+    "skill": 0.4827,
+    "cv_rmse_mediana_pct": 15.82,
+    "pct_series_acreditables": 73.2,
+    "contexto_h": 336,
+    "horizonte_h": 24,
+    "segundos": 18.8
+  },
+  {
+    "variante": "contexto 720 h",
+    "mae": 10.3013,
+    "mae_train": 9.7138,
+    "brecha": 0.5875,
+    "skill": 0.4836,
+    "cv_rmse_mediana_pct": 15.91,
+    "pct_series_acreditables": 74.5,
+    "contexto_h": 720,
+    "horizonte_h": 24,
+    "segundos": 18.7
+  },
+  {
+    "variante": "horizonte 168 h",
+    "mae": 15.0239,
+    "mae_train": 14.4565,
+    "brecha": 0.5674,
+    "skill": 0.211,
+    "cv_rmse_mediana_pct": 22.1,
+    "pct_series_acreditables": 58.2,
+    "contexto_h": 168,
+    "horizonte_h": 168,
+    "segundos": 18.8
+  },
+  {
+    "variante": "log1p + robusta",
+    "mae": 11.228,
+    "mae_train": 11.3482,
+    "brecha": -0.1202,
+    "skill": 0.4372,
+    "cv_rmse_mediana_pct": 16.77,
+    "pct_series_acreditables": 71.5,
+    "contexto_h": 168,
+    "horizonte_h": 24,
+    "segundos": 19.4
+  }
+]

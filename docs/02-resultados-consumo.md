@@ -165,17 +165,40 @@ El modelo más pequeño es el **mejor** en skill. 29 veces más parámetros lo e
 | horizonte 168 h | **+0,0362** | 2,992 | **Se desploma** |
 | ~~sin meteorología~~ | +0,3799 | 0,527 | **No aplica**: OEDI no trae meteorología |
 
-Tres cosas que sacar de aquí:
+### Ningún preprocesado transfiere entre datasets
 
-1. **`log1p` es la única mejora real.** El consumo es asimétrico a la derecha y comprimir
-   la cola ayuda: el skill sube de 0,380 a 0,396 y la brecha entre entrenamiento y test
-   cae de 0,527 a 0,175. Es una línea de código.
-2. **Más contexto perjudica.** De 168 h a 720 h la brecha se multiplica por cinco y el
-   skill baja. No hace falta más pasado, hace falta mejor información.
-3. **A una semana vista el modelo casi no aporta** (+0,036). La base ingenua es
-   durísima en horizontes largos, porque a siete días la mejor predicción sigue siendo
-   «lo mismo que la semana pasada». El horizonte de 24 h no es una limitación técnica:
-   es donde el modelo tiene algo que decir.
+Al correr la misma ablación sobre BDG2 los efectos **se invierten**:
+
+| Variante | Skill OEDI | Skill BDG2 |
+|---|---|---|
+| referencia | +0,3799 | +0,4798 |
+| `log1p` | **+0,3958** (mejor) | **+0,4559** (peor) |
+| normalización robusta | +0,3758 | +0,4744 |
+| contexto 336 h | +0,3794 | +0,4827 |
+| contexto 720 h | **+0,3429** (peor) | **+0,4836** (mejor) |
+| `log1p` + robusta | +0,3942 | +0,4372 (el peor) |
+| horizonte 168 h | +0,0362 | +0,2110 |
+
+`log1p` ayuda en OEDI y estorba en BDG2. Ampliar el contexto estorba en OEDI y ayuda en
+BDG2. **Exactamente al revés en cada caso.**
+
+Tiene explicación: OEDI es simulado, sin ruido de contador, y sus series abarcan un
+rango de consumo enorme (de 0,7 a 4.132 kWh de media), que es justo donde comprimir la
+cola con `log1p` aporta. BDG2 son edificios medidos, ya limpiados, y la normalización
+por serie que hay antes ya resuelve la escala. Y OEDI cubre un año frente a los dos de
+BDG2, así que una ventana de 720 h se come una fracción mucho mayor del histórico y
+sobreajusta.
+
+**La conclusión útil no es «usa log1p», es que no hay un preprocesado universalmente
+bueno aquí.** Todas las diferencias son de ±0,02 de skill —del orden de la banda de
+ruido que ya habíamos establecido— y cambian de signo según el dataset. Ajustar el
+preprocesado al dataset concreto es afinar dentro del ruido; no es la palanca.
+
+**Lo único que se sostiene en los dos:** a una semana vista el modelo casi no aporta
+(+0,036 en OEDI, +0,211 en BDG2, frente a ~+0,38 y ~+0,48 a 24 h). La base ingenua es
+durísima en horizontes largos, porque a siete días la mejor predicción sigue siendo «lo
+mismo que la semana pasada». **El horizonte de 24 h no es una limitación técnica: es
+donde el modelo tiene algo que decir.**
 
 > **Precaución con el 90 % de acreditables de OEDI frente al 73 % de BDG2.** ComStock es
 > **simulado**: no tiene ruido de contador ni comportamiento humano irregular. Ese 90 %
