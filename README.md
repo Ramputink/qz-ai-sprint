@@ -17,6 +17,23 @@ y muestra un **ProcessView** (panel HTML en vivo) para ver en qué punto estás.
 
 ---
 
+## Documentación
+
+La bitácora técnica completa está en **[`docs/`](docs/README.md)**: qué se construyó, qué
+se midió, qué no funcionó y qué queda abierto.
+
+| | |
+|---|---|
+| [Qué se construyó](docs/01-que-se-construyo.md) | Estado inicial y piezas añadidas |
+| [Consumo eléctrico](docs/02-resultados-consumo.md) | La línea prioritaria y sus resultados |
+| [Mantenimiento predictivo](docs/03-resultados-predictivo.md) | RUL, y por qué IMS no da señal |
+| [Cómo se mide](docs/04-como-se-mide.md) | Criterios de validación. **Empieza por aquí** |
+| [Fallos silenciosos](docs/05-fallos-silenciosos.md) | Los 20 errores que no lanzaban excepción |
+| [Datasets](docs/06-datasets.md) | Catálogo verificado y trampas de cada fuente |
+| [Preguntas abiertas](docs/07-preguntas-abiertas.md) | Qué falta por medir y por decidir |
+
+---
+
 ## 1. En el PC de entrenamiento (Windows + RTX 5090)
 
 ### 1.1 Requisitos previos (una vez)
