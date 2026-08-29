@@ -226,6 +226,89 @@ def prep_steel(raw: Path, out: Path, cb: ProgressCB) -> dict[str, Any]:
     return meta
 
 
+# =====================  Low Carbon London  ===================================
+def prep_lcl(raw: Path, out: Path, cb: ProgressCB, freq_h: int = 1,
+             min_cobertura: float = 0.8, chunk: int = 8_000_000) -> dict[str, Any]:
+    """Low Carbon London: 5.567 hogares REALES, media hora, 2011-2014.
+
+    Es el salto de escala: ~167 millones de lecturas de contador inteligente frente
+    a los 1.440 edificios de BDG2. Y son medidas de campo, no simulacion.
+
+    El CSV viene en formato LARGO (una fila por hogar y marca de tiempo) y pesa
+    8,5 GB, asi que se lee por bloques y se vuelca directamente sobre una matriz
+    preasignada (hogares x horas): pivotar con pandas en memoria pediria decenas de
+    GB para no ganar nada.
+    """
+    import pandas as pd
+
+    csv = next(raw.rglob("*FullData.csv"), None)
+    if csv is None:
+        raise FileNotFoundError("no se encontro el CSV de Low Carbon London")
+
+    col_id, col_t, col_v = "LCLid", "DateTime", "KWH/hh (per half hour) "
+    cb("low_carbon_london", 2.0, "primera pasada: hogares y rango temporal")
+
+    ids: dict[str, int] = {}
+    t_min = t_max = None
+    lector = pd.read_csv(csv, usecols=[col_id, col_t], chunksize=chunk,
+                         parse_dates=[col_t])
+    n_filas = 0
+    for i, ch in enumerate(lector):
+        for v in ch[col_id].unique():
+            ids.setdefault(v, len(ids))
+        lo, hi = ch[col_t].min(), ch[col_t].max()
+        t_min = lo if t_min is None else min(t_min, lo)
+        t_max = hi if t_max is None else max(t_max, hi)
+        n_filas += len(ch)
+        cb("low_carbon_london", 2 + 38 * min(1.0, n_filas / 1.7e8),
+           f"{n_filas/1e6:.0f}M filas · {len(ids)} hogares")
+
+    idx = pd.date_range(t_min.floor("h"), t_max.ceil("h"), freq=f"{freq_h}h")
+    pos = {t: i for i, t in enumerate(idx)}
+    S, T = len(ids), len(idx)
+    acum = np.zeros((S, T), dtype=np.float32)
+    visto = np.zeros((S, T), dtype=np.int16)
+
+    cb("low_carbon_london", 42.0, f"segunda pasada: volcando {S}x{T}")
+    lector = pd.read_csv(csv, usecols=[col_id, col_t, col_v], chunksize=chunk,
+                         parse_dates=[col_t])
+    hechas = 0
+    for ch in lector:
+        ch[col_v] = pd.to_numeric(ch[col_v], errors="coerce")
+        ch = ch.dropna(subset=[col_v])
+        fila = ch[col_id].map(ids).to_numpy()
+        hora = ch[col_t].dt.floor(f"{freq_h}h").map(pos).to_numpy()
+        ok = np.isfinite(hora.astype(float))
+        fila, hora = fila[ok].astype(np.int64), hora[ok].astype(np.int64)
+        vals = ch[col_v].to_numpy(dtype=np.float32)[ok]
+        np.add.at(acum, (fila, hora), vals)      # media hora -> suma horaria
+        np.add.at(visto, (fila, hora), 1)
+        hechas += len(ch)
+        cb("low_carbon_london", 42 + 50 * min(1.0, hechas / 1.7e8),
+           f"{hechas/1e6:.0f}M filas volcadas")
+
+    y = np.where(visto > 0, acum, np.nan)
+    keep = _cover(y, min_cobertura)
+    nombres = [k for k, v in sorted(ids.items(), key=lambda kv: kv[1])]
+    y, nombres = y[keep], [n for n, k in zip(nombres, keep) if k]
+    cb("low_carbon_london", 95.0, f"{len(nombres)} hogares con cobertura suficiente")
+
+    arrays = {"y": np.nan_to_num(y).astype(np.float32),
+              "time_feats": calendar_features(idx),
+              "weather": np.zeros((1, T, 0), dtype=np.float32),
+              "site_of_serie": np.zeros(len(nombres), dtype=np.int32),
+              "timestamps": _epoch(idx)}
+    meta = {"key": "low_carbon_london", "product": "consumo",
+            "frecuencia": f"{freq_h}h", "unidad": "kWh", "n_series": len(nombres),
+            "n_pasos": int(T), "series": nombres, "sitios": ["londres"],
+            "time_features": list(_TIME_FEATURES), "weather_features": [],
+            "filas_leidas": int(n_filas), "hogares_totales": len(ids),
+            "nota": "medidas de campo de contador inteligente; media hora agregada a hora",
+            "periodo": [str(idx[0]), str(idx[-1])]}
+    _save(out, "low_carbon_london", "consumo", arrays, meta)
+    return meta
+
+
 # =====================  AMPds2 (NILM)  =======================================
 # Medidor 1 = acometida (agregado). El resto son submedidas por circuito.
 _AMPDS_MAINS = 1
@@ -307,6 +390,7 @@ def prep_ampds2(raw: Path, out: Path, cb: ProgressCB,
 # =====================  Orquestacion  ========================================
 ADAPTERS = {
     "building_data_genome_2": prep_bdg2,
+    "low_carbon_london": prep_lcl,
     "electricity_load_diagrams": prep_electricity_load,
     "steel_industry_energy": prep_steel,
     "ampds2": prep_ampds2,

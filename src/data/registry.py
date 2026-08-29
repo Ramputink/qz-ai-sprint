@@ -126,6 +126,13 @@ REGISTRY: dict[str, DatasetSpec] = {
         notes="Planta siderurgica: consumo horario con potencia REACTIVA, factor de potencia, "
               "CO2 y tipo de carga. Pequeno, pero es el unico industrial de verdad y trae las "
               "variables sobre las que se actua para optimizar."),
+    "low_carbon_london": DatasetSpec(
+        key="low_carbon_london", method="http", gb=0.8, kind="consumption",
+        location="https://data.london.gov.uk/download/smartmeter-energy-use-data-in-london-households/3527bf39-d93e-4071-8451-df2ade1ea4f2/LCL-June2015v2.zip",
+        filename="LCL-June2015v2.zip",
+        notes="5.567 hogares reales de Londres, media hora, 2011-2014: ~167 millones de "
+              "lecturas (8,5 GB en un solo CSV). Es el salto de escala en datos MEDIDOS. "
+              "El zip usa una compresion que zipfile no abre; el extractor cae en 7z."),
     "ampds2": DatasetSpec(
         key="ampds2", method="http", gb=0.31, kind="consumption", optional=True,
         location="https://dataverse.harvard.edu/api/access/datafile/3661112",

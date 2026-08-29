@@ -90,7 +90,8 @@ class TareaPrevision:
 
     def __init__(self, data_dir: Path, key: str, contexto: int = CONTEXTO_H,
                  horizonte: int = HORIZONTE_H, frac_train: float = 0.7,
-                 max_series: int = 400, seed: int = 0):
+                 max_series: int = 400, seed: int = 0, log1p: bool = False,
+                 norma: str = "zscore", usar_meteo: bool = True):
         import torch
 
         from .data.consumption import load_consumo
@@ -107,6 +108,12 @@ class TareaPrevision:
             site = arrays["site_of_serie"]
 
         y = np.nan_to_num(y, nan=0.0)
+        # log1p: el consumo es asimetrico a la derecha (muchas horas bajas, pocas
+        # puntas altas). Comprimir la cola hace que el error no lo dominen las puntas.
+        self.log1p = log1p
+        if log1p:
+            y = np.log1p(np.clip(y, 0, None))
+        self.norma = norma
         self.meta, self.key = meta, key
         self.contexto, self.horizonte = contexto, horizonte
         T = y.shape[1]
@@ -114,8 +121,16 @@ class TareaPrevision:
 
         # normalizacion POR SERIE, con estadisticos del tramo de entrenamiento:
         # usar todo el historico filtraria informacion del futuro.
-        mu = y[:, :self.corte].mean(axis=1, keepdims=True)
-        sd = y[:, :self.corte].std(axis=1, keepdims=True)
+        if norma == "robusta":
+            # mediana e IQR en vez de media y desviacion: un contador con lecturas
+            # disparatadas no desplaza la escala de toda la serie.
+            mu = np.median(y[:, :self.corte], axis=1, keepdims=True)
+            q1, q3 = (np.percentile(y[:, :self.corte], q, axis=1, keepdims=True)
+                      for q in (25, 75))
+            sd = (q3 - q1) / 1.349
+        else:
+            mu = y[:, :self.corte].mean(axis=1, keepdims=True)
+            sd = y[:, :self.corte].std(axis=1, keepdims=True)
         sd[sd < 1e-6] = 1.0
         self.mu, self.sd = mu.astype(np.float32), sd.astype(np.float32)
 
@@ -123,7 +138,7 @@ class TareaPrevision:
         self.y = torch.as_tensor((y - mu) / sd).to(dev)              # (S, T)
         self.y_real = torch.as_tensor(y).to(dev)
         tf = arrays["time_feats"]                                     # (T, Ct)
-        wx = arrays["weather"]                                        # (W, T, Cw)
+        wx = arrays["weather"] if usar_meteo else arrays["weather"][:, :, :0]
         if wx.shape[-1]:
             wmu = wx[:, :self.corte].mean(axis=1, keepdims=True)
             wsd = wx[:, :self.corte].std(axis=1, keepdims=True)
@@ -169,7 +184,10 @@ class TareaPrevision:
         import torch
         mu = torch.as_tensor(self.mu, device=v.device)[s_idx]
         sd = torch.as_tensor(self.sd, device=v.device)[s_idx]
-        return v * sd + mu
+        real = v * sd + mu
+        # el error se mide SIEMPRE en kWh reales, tambien cuando se entreno en log:
+        # comparar errores en escalas distintas no significa nada.
+        return torch.expm1(real.clamp(max=20.0)) if self.log1p else real
 
 
 # =====================  modelo de prevision  =================================
@@ -238,7 +256,7 @@ def _fn_perdida(nombre: str, delta: float = 1.0):
 
 
 def evaluar_previsor(modelo, tarea: TareaPrevision, n_lotes: int = 20,
-                     lote: int = 1024) -> dict[str, Any]:
+                     lote: int = 1024, tramo: str = "test") -> dict[str, Any]:
     """Metricas agregadas y POR SERIE, en kWh reales.
 
     Lo segundo importa: ASHRAE Guideline 14 se aplica a CADA emplazamiento, no a un
@@ -253,7 +271,7 @@ def evaluar_previsor(modelo, tarea: TareaPrevision, n_lotes: int = 20,
     reales, predichos, bases, series = [], [], [], []
     with torch.no_grad():
         for _ in range(n_lotes):
-            ctx, cov, fut, base, s = tarea.lote(lote, "test")
+            ctx, cov, fut, base, s = tarea.lote(lote, tramo)
             p = modelo(ctx, cov).float()
             reales.append(tarea.desnormalizar(fut, s).cpu().numpy())
             predichos.append(tarea.desnormalizar(p, s).cpu().numpy())
@@ -286,12 +304,14 @@ def evaluar_previsor(modelo, tarea: TareaPrevision, n_lotes: int = 20,
 
 def entrenar_previsor(tarea: TareaPrevision, pasos: int = 3000, lote: int = 512,
                       lr: float = 1e-3, perdida: str = "huber", huber_delta: float = 1.0,
+                      ancho: int = 512, bloques: int = 3,
                       logger=None, cb=None) -> dict[str, Any]:
     """Entrena el previsor y lo mide CONTRA LA BASE INGENUA."""
     import torch
 
     dev = _device()
-    modelo = construir_previsor(tarea.contexto, tarea.horizonte, tarea.n_cov).to(dev)
+    modelo = construir_previsor(tarea.contexto, tarea.horizonte, tarea.n_cov,
+                                ancho=ancho, bloques=bloques).to(dev)
     opt = torch.optim.AdamW(modelo.parameters(), lr=lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=lr, total_steps=pasos)
     crit = _fn_perdida(perdida, huber_delta)
@@ -311,8 +331,15 @@ def entrenar_previsor(tarea: TareaPrevision, pasos: int = 3000, lote: int = 512,
             cb(paso / pasos * 100,
                f"paso {paso}/{pasos} · {perdida} {float(p_loss.detach()):.4f}")
 
-    m = evaluar_previsor(modelo, tarea)
-    m.update({"dataset": tarea.key, "series": tarea.n_series,
+    m = evaluar_previsor(modelo, tarea, tramo="test")
+    # el error en ENTRENAMIENTO diagnostica si falta capacidad o sobran datos vistos:
+    # train ~= test y ambos altos -> infra-ajuste, mas capas ayudarian;
+    # train << test -> sobre-ajuste, mas capas empeoran.
+    m_tr = evaluar_previsor(modelo, tarea, n_lotes=10, tramo="train")
+    m["mae_train"] = m_tr["mae"]
+    m["brecha_train_test"] = round(m["mae"] - m_tr["mae"], 4)
+    m.update({"ancho": ancho, "bloques": bloques,
+              "dataset": tarea.key, "series": tarea.n_series,
               "contexto_h": tarea.contexto, "horizonte_h": tarea.horizonte,
               "perdida": perdida, "huber_delta": huber_delta if perdida == "huber" else None,
               "pasos": pasos, "segundos": round(time.time() - t0, 1),
