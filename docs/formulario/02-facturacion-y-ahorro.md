@@ -1,0 +1,158 @@
+# 02 — Facturación y ahorro
+
+El documento que conecta las magnitudes eléctricas con euros. Sin esto, «optimizar el
+consumo» no tiene una función objetivo.
+
+## De qué se compone una factura industrial
+
+```
+Coste = Termino_potencia + Termino_energia + Penalizacion_reactiva + Impuestos
+```
+
+**Término de potencia** — se paga por la potencia *contratada* y por los excesos sobre
+ella, no por lo consumido:
+
+```
+Termino_potencia = sum_p( Pc[p] * precio_potencia[p] * dias )
+```
+
+donde `p` recorre los periodos tarifarios. La clave es que **se paga aunque no se
+consuma**, y que un único pico de 15 minutos puede fijar el coste de todo un año si
+dispara el maxímetro.
+
+**Término de energía** — lo consumido, discriminado por periodo horario:
+
+```
+Termino_energia = sum_p( E[p] * precio_energia[p] )
+```
+
+Esto es lo que hace que **el previsor tenga valor económico**: si sabes el consumo de
+mañana hora a hora, puedes desplazar cargas a periodos baratos. El horizonte de 24 h del
+modelo no es arbitrario, es el horizonte de decisión operativa.
+
+## Penalización por reactiva y su corrección
+
+La compañía penaliza cuando el factor de potencia baja de un umbral (típicamente 0,95).
+La corrección es una batería de condensadores, y su dimensionado es esta fórmula:
+
+```
+Q_C = P * ( tan(phi_1) - tan(phi_2) )            [kVAr]
+
+phi_1 = acos( cos_phi_actual )     ángulo actual
+phi_2 = acos( cos_phi_objetivo )   ángulo deseado
+```
+
+**Ejemplo.** Una planta con `P = 500 kW` y `cos(phi) = 0,80` que quiere llegar a `0,95`:
+
+```
+phi_1 = acos(0,80) = 36,87 deg   ->  tan = 0,7500
+phi_2 = acos(0,95) = 18,19 deg   ->  tan = 0,3287
+
+Q_C = 500 * (0,7500 - 0,3287) = 210,6 kVAr
+```
+
+**Por qué esto importa más de lo que parece:** es una vía de ahorro que **no toca la
+producción**. No hay que apagar nada ni cambiar horarios — se instala un equipo y la
+penalización desaparece. Es el ahorro más fácil de vender y el más fácil de verificar.
+Y es la razón de que `steel_industry_energy`, con sus 482 KB, importe pese a ser el
+dataset más pequeño del catálogo: es el único que trae reactiva y factor de potencia.
+
+## Medir un ahorro: el problema del contrafactual
+
+**No se puede demostrar un ahorro comparando meses.** Si el consumo baja un 8 % pero
+ese mes hizo más frío, o se produjo menos, o hubo un puente, no se ha ahorrado nada.
+
+```
+Ahorro = Consumo_que_habria_habido - Consumo_medido
+```
+
+El primer término **no es observable**: es un contrafactual. Hay que estimarlo con un
+modelo entrenado en el periodo anterior a la intervención.
+
+## IPMVP Opción C
+
+El protocolo estándar (*International Performance Measurement and Verification
+Protocol*) para medir ahorros a nivel de acometida:
+
+```
+1. PERIODO BASE      se mide consumo y variables explicativas (clima, producción)
+2. AJUSTE            se entrena  E_base = f(clima, calendario, produccion)
+3. INTERVENCION      se aplica la mejora
+4. PERIODO REPORTE   se predice lo que HABRIA consumido y se compara
+
+Ahorro = f(condiciones_del_periodo_reporte) - E_medido_reporte
+```
+
+El punto sutil: el modelo se alimenta con **las condiciones del periodo de reporte**, no
+las del base. Así se descuenta que hiciera más frío o que se produjera más.
+
+```python
+# src/consumo.py::medir_ahorro
+# El corte es TEMPORAL: se entrena con el pasado y se predice el futuro.
+```
+
+**La prueba de que el método no miente:** aplicado a datos **sin ninguna intervención**,
+el ahorro aparente debe salir próximo a cero. En este proyecto sale **0,096 %**. Eso
+fija el suelo de credibilidad: cualquier ahorro reportado por debajo de ~0,2 % es sesgo
+del método, no una mejora.
+
+## ASHRAE Guideline 14: cuándo se acepta una línea base
+
+Una línea base solo vale si es lo bastante precisa. Dos criterios:
+
+```
+                sqrt( sum( (y[i] - yhat[i])^2 ) / (n - p) )
+CV(RMSE) = 100 * -------------------------------------------      [%]
+                                mean(y)
+
+                     sum( y[i] - yhat[i] )
+NMBE     = 100 * ---------------------------                        [%]
+                       (n - p) * mean(y)
+```
+
+donde `p` es el número de parámetros del modelo de regresión.
+
+| Criterio | Umbral en datos horarios | Qué mide |
+|---|---|---|
+| CV(RMSE) | **< 25 %** | Dispersión: cuánto se equivoca |
+| NMBE | **± 5 %** (a veces ±10 %) | Sesgo: si se equivoca *siempre hacia el mismo lado* |
+
+**El NMBE es el que protege contra el fraude involuntario.** Un modelo que sobreestima
+sistemáticamente el consumo esperado inventa ahorros que no existen: la diferencia
+`esperado − medido` sale positiva sin que nadie haya hecho nada.
+
+### Se aplica por emplazamiento
+
+Esto costó una conclusión equivocada durante un día. ASHRAE G14 evalúa **cada
+emplazamiento por separado**, no un promedio de cartera:
+
+| | Agrupando 400 edificios | Por edificio |
+|---|---|---|
+| CV(RMSE) | 30,16 % → suspende | **mediana 16,05 %** → aprueba |
+| Veredicto | No acreditable | **73,2 % de los edificios lo son** |
+
+Con edificios de escalas muy distintas, el número agrupado lo dominan unos pocos grandes
+o erráticos (percentil 90 en 44,9 %). Ver [05 — Métricas de modelo](05-metricas-de-modelo.md).
+
+### Una simplificación de la implementación
+
+El código calcula `RMSE` y `NMBE` dividiendo entre `n`, no entre `n - p`:
+
+```python
+# src/consumo.py::metricas
+rmse = sqrt(mean(err ** 2))                  # usa n, no n - p
+nmbe = 100 * mean(err) / abs(mean(real))     # idem
+```
+
+Con `n` del orden de decenas de miles la diferencia es despreciable. **Pero si alguna vez
+se evalúa un emplazamiento con pocas muestras, esta simplificación es optimista** y hay
+que corregirla antes de presentar el número a un tercero.
+
+## Dónde está en el código
+
+| Concepto | Fichero |
+|---|---|
+| CV(RMSE), NMBE, umbral ASHRAE | `src/consumo.py::metricas` |
+| CV(RMSE) por emplazamiento y % acreditables | `src/consumo.py::evaluar_previsor` |
+| Protocolo IPMVP Opción C | `src/consumo.py::medir_ahorro` |
+| Reactiva y factor de potencia como covariables | `src/data/consumption.py::prep_steel` |
