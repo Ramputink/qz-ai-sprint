@@ -31,6 +31,7 @@ se midió, qué no funcionó y qué queda abierto.
 | [Fallos silenciosos](docs/05-fallos-silenciosos.md) | Los 20 errores que no lanzaban excepción |
 | [Datasets](docs/06-datasets.md) | Catálogo verificado y trampas de cada fuente |
 | [Preguntas abiertas](docs/07-preguntas-abiertas.md) | Qué falta por medir y por decidir |
+| **[Formulario](docs/formulario/README.md)** | **Fórmulas eléctricas y matemáticas del proyecto** |
 
 ---
 

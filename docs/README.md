@@ -16,6 +16,7 @@ repetir el mismo camino dentro de tres meses.
 | [05 — Fallos silenciosos](05-fallos-silenciosos.md) | Los 20 errores que no lanzaban excepción |
 | [06 — Datasets](06-datasets.md) | Catálogo, estado verificado y trampas de cada fuente |
 | [07 — Preguntas abiertas](07-preguntas-abiertas.md) | Qué queda por decidir y por medir |
+| **[Formulario](formulario/README.md)** | **Todas las fórmulas eléctricas y matemáticas, con su implementación** |
 
 ## Resumen en una página
 
