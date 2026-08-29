@@ -3,26 +3,21 @@
 Lo que queda por medir y lo que queda por decidir. Separadas porque no se resuelven igual:
 las primeras las contesta la máquina, las segundas las contesta el negocio.
 
-## En ejecución
+## Contestado (29-08-2026)
 
-**El barrido de escala sobre OEDI.** Mismo modelo con 100, 400, 1.600 y 4.000 edificios.
-Encolado en `scripts/esperar_gpu_y_barrer.sh`, arranca cuando la GPU baje de 8 GB en tres
-lecturas consecutivas.
+**¿El modelo está limitado por datos?** No. El barrido de escala sobre OEDI (100 → 4.000
+edificios, 40×) deja el skill entre 0,364 y 0,387 sin tendencia y el porcentaje de
+acreditables plano. Junto con el barrido de capacidad —de 0,88 a 25,6 M de parámetros,
+también plano— queda establecido que **el techo no está ni en los parámetros ni en el
+número de edificios: está en el problema**.
 
-Es la pregunta que cierra el razonamiento del bloque de consumo. Ya sabemos que **el
-techo no está en los parámetros**: de 0,9 a 25,7 millones —28 veces más— el porcentaje de
-edificios acreditables no se movió del 72-73 %, y la brecha entre error de entrenamiento
-y test es casi nula en todas las configuraciones. Quedan dos posibilidades:
+Consecuencia práctica: **no merece la pena descargar más datos del mismo tipo.** La vía
+es información *distinta* (condicionar por edificio) o aceptar que hay una fracción de
+edificios poco predecibles y excluirla del alcance.
 
-- **Si el error baja al añadir edificios**, el límite son los datos y OEDI merece la pena.
-- **Si se aplana**, el techo es del problema y hay que cambiar de enfoque: condicionar
-  por edificio (metadatos o embedding aprendido) en vez de resolver 400 problemas
-  distintos con un solo juego de pesos.
-
-Las dos respuestas son útiles. La segunda ahorraría descargar terabytes.
-
-Junto a él corren los barridos de capacidad y preprocesado sobre OEDI, para comparar de
-igual a igual con lo medido en BDG2.
+**¿Qué preprocesado aporta?** Solo `log1p`: skill de +0,3799 a +0,3958 y la brecha
+train/test de 0,527 a 0,175. Ampliar el contexto perjudica. Detalle en
+[02 — Consumo](02-resultados-consumo.md).
 
 ## Por medir
 

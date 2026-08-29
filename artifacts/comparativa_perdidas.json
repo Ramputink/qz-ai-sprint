@@ -1,0 +1,83 @@
+{
+  "l1": {
+    "mae": 10.3778,
+    "rmse": 43.446,
+    "cv_rmse_pct": 30.16,
+    "nmbe_pct": 0.01,
+    "n": 491520,
+    "mae_base_ingenua": 19.9502,
+    "skill_vs_ingenua": 0.4798,
+    "cumple_ashrae_g14": false,
+    "por_serie": {
+      "cv_rmse_mediana_pct": 16.05,
+      "cv_rmse_p90_pct": 44.88,
+      "series_que_cumplen_ashrae": 293,
+      "series_evaluadas": 400,
+      "pct_series_acreditables": 73.2,
+      "skill_mediano": 0.4326
+    },
+    "dataset": "building_data_genome_2",
+    "series": 400,
+    "contexto_h": 168,
+    "horizonte_h": 24,
+    "perdida": "l1",
+    "huber_delta": null,
+    "pasos": 6000,
+    "segundos": 67.9,
+    "parametros": 3399704
+  },
+  "huber": {
+    "mae": 10.7813,
+    "rmse": 43.2277,
+    "cv_rmse_pct": 30.0,
+    "nmbe_pct": 0.07,
+    "n": 491520,
+    "mae_base_ingenua": 19.9502,
+    "skill_vs_ingenua": 0.4596,
+    "cumple_ashrae_g14": false,
+    "por_serie": {
+      "cv_rmse_mediana_pct": 16.07,
+      "cv_rmse_p90_pct": 43.81,
+      "series_que_cumplen_ashrae": 295,
+      "series_evaluadas": 400,
+      "pct_series_acreditables": 73.8,
+      "skill_mediano": 0.4113
+    },
+    "dataset": "building_data_genome_2",
+    "series": 400,
+    "contexto_h": 168,
+    "horizonte_h": 24,
+    "perdida": "huber",
+    "huber_delta": 1.0,
+    "pasos": 6000,
+    "segundos": 68.8,
+    "parametros": 3399704
+  },
+  "l2": {
+    "mae": 11.3267,
+    "rmse": 43.7521,
+    "cv_rmse_pct": 30.37,
+    "nmbe_pct": -0.15,
+    "n": 491520,
+    "mae_base_ingenua": 19.9502,
+    "skill_vs_ingenua": 0.4323,
+    "cumple_ashrae_g14": false,
+    "por_serie": {
+      "cv_rmse_mediana_pct": 16.38,
+      "cv_rmse_p90_pct": 44.11,
+      "series_que_cumplen_ashrae": 296,
+      "series_evaluadas": 400,
+      "pct_series_acreditables": 74.0,
+      "skill_mediano": 0.3835
+    },
+    "dataset": "building_data_genome_2",
+    "series": 400,
+    "contexto_h": 168,
+    "horizonte_h": 24,
+    "perdida": "l2",
+    "huber_delta": null,
+    "pasos": 6000,
+    "segundos": 65.6,
+    "parametros": 3399704
+  }
+}

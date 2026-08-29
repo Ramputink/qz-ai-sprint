@@ -115,8 +115,69 @@ Tres lecturas:
 25,7M. Eso significa que **el modelo que cumple la métrica de negocio cabe en un
 dispositivo de edge**, lo cual es una ventaja de producto, no solo una curiosidad.
 
-## Pendiente de medir
+## OEDI: el techo tampoco está en los datos (29-08-2026)
 
-El barrido de escala sobre OEDI (100 → 4.000 edificios) contestará la pregunta que queda
-abierta: si el techo no está en los parámetros, ¿está en los datos o está en el problema?
-Ver [07 — Preguntas abiertas](07-preguntas-abiertas.md).
+4.000 edificios de ComStock, 16 entrenamientos, **6,7 minutos** en total.
+
+### Curva de escala — la pregunta que quedaba abierta
+
+| Edificios | Skill | CV(RMSE) mediana | % acreditables | Brecha train/test |
+|---|---|---|---|---|
+| 100 | +0,3865 | 10,84 % | 90,0 % | 0,965 |
+| 400 | +0,3799 | 11,64 % | 90,0 % | 0,527 |
+| 1.600 | +0,3642 | 11,79 % | 90,6 % | 0,421 |
+| 4.000 | +0,3719 | 11,20 % | 85,7 % | 0,407 |
+
+**Multiplicar por 40 el número de edificios no mejora nada.** El skill se mueve entre
+0,364 y 0,387 sin tendencia, y el porcentaje de acreditables tampoco.
+
+> **El MAE de esta tabla NO es comparable entre filas** y por eso no aparece. Cada
+> submuestra tiene una mezcla distinta de edificios, y el consumo medio por serie va de
+> 0,7 a 4.132 kWh — un factor de 6.000. El skill sí es comparable porque se normaliza
+> contra la base ingenua calculada sobre esos mismos datos.
+
+**Conclusión combinada con el barrido de capacidad: el techo no está en los parámetros
+ni en el número de edificios.** Está en el problema. Lo que falta no es más de lo mismo,
+sino información distinta: condicionar por edificio (metadatos, embedding) o aceptar que
+hay una fracción de edificios intrínsecamente poco predecibles.
+
+### Capacidad — confirma lo visto en BDG2
+
+| Ancho | Bloques | Params | Skill | % acreditables |
+|---|---|---|---|---|
+| 256 | 3 | **0,88M** | **+0,3896** | 90,5 % |
+| 512 | 3 | 3,3M | +0,3799 | 90,0 % |
+| 512 | 12 | 12,8M | +0,3640 | 90,8 % |
+| 1024 | 6 | **25,6M** | **+0,3583** | 90,8 % |
+
+El modelo más pequeño es el **mejor** en skill. 29 veces más parámetros lo empeoran.
+
+### Preprocesado — solo una transformación aporta
+
+| Variante | Skill | Brecha train/test | Lectura |
+|---|---|---|---|
+| **log1p** | **+0,3958** | **0,175** | **Mejor, y reduce la brecha a un tercio** |
+| log1p + robusta | +0,3942 | 0,162 | Equivalente |
+| referencia | +0,3799 | 0,527 | — |
+| contexto 336 h | +0,3794 | 1,642 | Igual, pero empieza a sobreajustar |
+| normalización robusta | +0,3758 | 0,540 | Ligeramente peor |
+| contexto 720 h | +0,3429 | 2,824 | **Peor: sobreajusta claramente** |
+| horizonte 168 h | **+0,0362** | 2,992 | **Se desploma** |
+| ~~sin meteorología~~ | +0,3799 | 0,527 | **No aplica**: OEDI no trae meteorología |
+
+Tres cosas que sacar de aquí:
+
+1. **`log1p` es la única mejora real.** El consumo es asimétrico a la derecha y comprimir
+   la cola ayuda: el skill sube de 0,380 a 0,396 y la brecha entre entrenamiento y test
+   cae de 0,527 a 0,175. Es una línea de código.
+2. **Más contexto perjudica.** De 168 h a 720 h la brecha se multiplica por cinco y el
+   skill baja. No hace falta más pasado, hace falta mejor información.
+3. **A una semana vista el modelo casi no aporta** (+0,036). La base ingenua es
+   durísima en horizontes largos, porque a siete días la mejor predicción sigue siendo
+   «lo mismo que la semana pasada». El horizonte de 24 h no es una limitación técnica:
+   es donde el modelo tiene algo que decir.
+
+> **Precaución con el 90 % de acreditables de OEDI frente al 73 % de BDG2.** ComStock es
+> **simulado**: no tiene ruido de contador ni comportamiento humano irregular. Ese 90 %
+> mide la predecibilidad de una simulación, no la de una cartera real. **El número que
+> hay que llevarse a un contrato es el 73 % de BDG2**, que son edificios medidos.

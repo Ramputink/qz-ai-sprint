@@ -4,6 +4,12 @@
 /data/
 /checkpoints/
 /artifacts/
+# ...salvo los JSON de resultados: 56 KB en total, son la evidencia cruda de los
+# barridos y lo que lee el panel de analyze/dashboard.py. Los .zip por etapa y los
+# modelos exportados (18 MB) siguen fuera.
+!/artifacts/
+/artifacts/*
+!/artifacts/*.json
 /processview/
 /logs/
 state.json

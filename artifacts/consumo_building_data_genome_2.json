@@ -1,0 +1,256 @@
+{
+  "prevision": {
+    "mae": 10.1428,
+    "rmse": 45.3164,
+    "cv_rmse_pct": 31.32,
+    "nmbe_pct": 0.1,
+    "n": 491520,
+    "mae_base_ingenua": 19.1535,
+    "skill_vs_ingenua": 0.4704,
+    "cumple_ashrae_g14": false,
+    "dataset": "building_data_genome_2",
+    "series": 400,
+    "contexto_h": 168,
+    "horizonte_h": 24,
+    "pasos": 6000,
+    "segundos": 40.4,
+    "parametros": 3399704
+  },
+  "desperdicio": {
+    "sigma_residuo_kwh": 41.04,
+    "umbral_kwh": 82.079,
+    "ventanas_analizadas": 20480,
+    "ventanas_con_exceso_sostenido": 380,
+    "pct_ventanas_con_exceso": 1.86,
+    "energia_por_encima_de_lo_esperado_kwh": 2420839.0,
+    "nota": "exceso sostenido = 3+ horas seguidas por encima del umbral; un pico aislado es ruido de medida, no desperdicio"
+  },
+  "linea_base_ahorro": {
+    "consumo_medido_kwh": 71050240.0,
+    "consumo_esperado_kwh": 71118592.0,
+    "ahorro_aparente_pct": 0.096,
+    "cv_rmse_pct": 28.07,
+    "nmbe_pct": 0.1,
+    "cumple_ashrae_g14": false,
+    "interpretacion": "sin intervencion, el ahorro aparente deberia rondar 0 %. Lo que se aleje de 0 es el sesgo del metodo, y marca el ahorro minimo que hay que superar para que una mejora sea creible."
+  },
+  "nilm": {
+    "total": {
+      "mae": 24.4165,
+      "rmse": 156.0295,
+      "cv_rmse_pct": 340.66,
+      "nmbe_pct": -24.06,
+      "n": 204800,
+      "mae_base_ingenua": 44.2107,
+      "skill_vs_ingenua": 0.4477,
+      "cumple_ashrae_g14": false,
+      "dataset": "ampds2",
+      "aparatos": 20,
+      "ventana": 599,
+      "pasos": 2000,
+      "segundos": 7.6
+    },
+    "por_aparato": {
+      "meter2": {
+        "mae": 1.3612,
+        "rmse": 6.3187,
+        "cv_rmse_pct": 467.24,
+        "nmbe_pct": -99.2,
+        "n": 10240,
+        "mae_base_ingenua": 2.1212,
+        "skill_vs_ingenua": 0.3583,
+        "cumple_ashrae_g14": false
+      },
+      "meter3": {
+        "mae": 24.9096,
+        "rmse": 47.768,
+        "cv_rmse_pct": 149.99,
+        "nmbe_pct": -66.44,
+        "n": 10240,
+        "mae_base_ingenua": 32.7308,
+        "skill_vs_ingenua": 0.239,
+        "cumple_ashrae_g14": false
+      },
+      "meter4": {
+        "mae": 26.3645,
+        "rmse": 77.1614,
+        "cv_rmse_pct": 235.93,
+        "nmbe_pct": -56.65,
+        "n": 10240,
+        "mae_base_ingenua": 63.141,
+        "skill_vs_ingenua": 0.5825,
+        "cumple_ashrae_g14": false
+      },
+      "meter5": {
+        "mae": 57.1161,
+        "rmse": 509.0483,
+        "cv_rmse_pct": 897.37,
+        "nmbe_pct": -98.35,
+        "n": 10240,
+        "mae_base_ingenua": 106.5147,
+        "skill_vs_ingenua": 0.4638,
+        "cumple_ashrae_g14": false
+      },
+      "meter6": {
+        "mae": 4.2039,
+        "rmse": 34.361,
+        "cv_rmse_pct": 837.45,
+        "nmbe_pct": -97.38,
+        "n": 10240,
+        "mae_base_ingenua": 8.1742,
+        "skill_vs_ingenua": 0.4857,
+        "cumple_ashrae_g14": false
+      },
+      "meter7": {
+        "mae": 0.6667,
+        "rmse": 2.2087,
+        "cv_rmse_pct": 333.19,
+        "nmbe_pct": -99.62,
+        "n": 10240,
+        "mae_base_ingenua": 1.0498,
+        "skill_vs_ingenua": 0.3649,
+        "cumple_ashrae_g14": false
+      },
+      "meter8": {
+        "mae": 17.4275,
+        "rmse": 114.352,
+        "cv_rmse_pct": 658.99,
+        "nmbe_pct": -100.12,
+        "n": 10240,
+        "mae_base_ingenua": 30.8289,
+        "skill_vs_ingenua": 0.4347,
+        "cumple_ashrae_g14": false
+      },
+      "meter9": {
+        "mae": 19.6904,
+        "rmse": 20.917,
+        "cv_rmse_pct": 34380.4,
+        "nmbe_pct": 31509.95,
+        "n": 10240,
+        "mae_base_ingenua": 17.2614,
+        "skill_vs_ingenua": -0.1407,
+        "cumple_ashrae_g14": false
+      },
+      "meter10": {
+        "mae": 1.8338,
+        "rmse": 2.9751,
+        "cv_rmse_pct": 7.58,
+        "nmbe_pct": 2.25,
+        "n": 10240,
+        "mae_base_ingenua": 1.8703,
+        "skill_vs_ingenua": 0.0195,
+        "cumple_ashrae_g14": true
+      },
+      "meter11": {
+        "mae": 47.6321,
+        "rmse": 80.2768,
+        "cv_rmse_pct": 170.26,
+        "nmbe_pct": -89.13,
+        "n": 10240,
+        "mae_base_ingenua": 61.6936,
+        "skill_vs_ingenua": 0.2279,
+        "cumple_ashrae_g14": false
+      },
+      "meter12": {
+        "mae": 17.4241,
+        "rmse": 34.8564,
+        "cv_rmse_pct": 29.14,
+        "nmbe_pct": -8.49,
+        "n": 10240,
+        "mae_base_ingenua": 17.1759,
+        "skill_vs_ingenua": -0.0144,
+        "cumple_ashrae_g14": false
+      },
+      "meter13": {
+        "mae": 1.0319,
+        "rmse": 1.9472,
+        "cv_rmse_pct": 131.24,
+        "nmbe_pct": 31.99,
+        "n": 10240,
+        "mae_base_ingenua": 1.1189,
+        "skill_vs_ingenua": 0.0778,
+        "cumple_ashrae_g14": false
+      },
+      "meter14": {
+        "mae": 62.3093,
+        "rmse": 252.2529,
+        "cv_rmse_pct": 144.61,
+        "nmbe_pct": -23.16,
+        "n": 10240,
+        "mae_base_ingenua": 248.0095,
+        "skill_vs_ingenua": 0.7488,
+        "cumple_ashrae_g14": false
+      },
+      "meter15": {
+        "mae": 2.2743,
+        "rmse": 7.7529,
+        "cv_rmse_pct": 107.78,
+        "nmbe_pct": -30.7,
+        "n": 10240,
+        "mae_base_ingenua": 4.109,
+        "skill_vs_ingenua": 0.4465,
+        "cumple_ashrae_g14": false
+      },
+      "meter16": {
+        "mae": 15.2671,
+        "rmse": 21.2719,
+        "cv_rmse_pct": 63.01,
+        "nmbe_pct": -11.51,
+        "n": 10240,
+        "mae_base_ingenua": 18.3736,
+        "skill_vs_ingenua": 0.1691,
+        "cumple_ashrae_g14": false
+      },
+      "meter17": {
+        "mae": 0.0077,
+        "rmse": 0.0988,
+        "cv_rmse_pct": 1331.61,
+        "nmbe_pct": -103.06,
+        "n": 10240,
+        "mae_base_ingenua": 0.0145,
+        "skill_vs_ingenua": 0.4682,
+        "cumple_ashrae_g14": false
+      },
+      "meter18": {
+        "mae": 156.0426,
+        "rmse": 320.5024,
+        "cv_rmse_pct": 128.0,
+        "nmbe_pct": -1.81,
+        "n": 10240,
+        "mae_base_ingenua": 212.4726,
+        "skill_vs_ingenua": 0.2656,
+        "cumple_ashrae_g14": false
+      },
+      "meter19": {
+        "mae": 17.3602,
+        "rmse": 51.1974,
+        "cv_rmse_pct": 127.73,
+        "nmbe_pct": -30.65,
+        "n": 10240,
+        "mae_base_ingenua": 35.3195,
+        "skill_vs_ingenua": 0.5085,
+        "cumple_ashrae_g14": false
+      },
+      "meter20": {
+        "mae": 4.5327,
+        "rmse": 7.1691,
+        "cv_rmse_pct": 15.23,
+        "nmbe_pct": 8.61,
+        "n": 10240,
+        "mae_base_ingenua": 5.5879,
+        "skill_vs_ingenua": 0.1888,
+        "cumple_ashrae_g14": true
+      },
+      "meter21": {
+        "mae": 10.8742,
+        "rmse": 166.0984,
+        "cv_rmse_pct": 1544.75,
+        "nmbe_pct": -98.82,
+        "n": 10240,
+        "mae_base_ingenua": 16.6468,
+        "skill_vs_ingenua": 0.3468,
+        "cumple_ashrae_g14": false
+      }
+    }
+  }
+}

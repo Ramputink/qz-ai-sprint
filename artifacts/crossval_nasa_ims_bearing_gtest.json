@@ -1,0 +1,102 @@
+{
+  "dataset": "nasa_ims_bearing",
+  "pliegues": 3,
+  "evaluables": 2,
+  "no_evaluables": [
+    "2nd_test (4 rod., 1 roto/s)"
+  ],
+  "accuracy": {
+    "mediana": 0.6129,
+    "media": 0.6129,
+    "min": 0.3993,
+    "max": 0.8264,
+    "pliegues_que_cumplen": 0
+  },
+  "aviso_dias": {
+    "mediana": 15.91,
+    "media": 15.91,
+    "min": 9.43,
+    "max": 22.4,
+    "pliegues_que_cumplen": 1
+  },
+  "fn_total": 13,
+  "pr_auc": {
+    "mediana": 0.6327,
+    "min": 0.4023,
+    "max": 0.8631,
+    "base_mediana": 0.5982,
+    "margen_sobre_base_mediana": 0.0344
+  },
+  "roc_auc": {
+    "mediana": 0.5453,
+    "min": 0.5069,
+    "max": 0.5837
+  },
+  "veredicto": "NO cumple",
+  "pliegues_detalle": [
+    {
+      "unit": 0,
+      "units": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "evaluable": true,
+      "accuracy": 0.8264,
+      "tp": 952,
+      "tn": 0,
+      "fp": 188,
+      "fn": 12,
+      "recall_fallo": 0.9876,
+      "precision_fallo": 0.8351,
+      "coste": 248.0,
+      "mae_rul": 354.451,
+      "pr_auc": 0.8631,
+      "pr_auc_base": 0.8368,
+      "roc_auc": 0.5069,
+      "lead_time_days": 9.43,
+      "lead_time_days_min": 1.83,
+      "maquinas_sin_aviso": 0,
+      "descripcion": "1st_test (4 rod., 2 roto/s)"
+    },
+    {
+      "unit": 4,
+      "units": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "evaluable": false,
+      "motivo": "el horizonte de aviso no parte las ventanas reservadas (duran menos que el aviso exigido): sin clase negativa",
+      "descripcion": "2nd_test (4 rod., 1 roto/s)"
+    },
+    {
+      "unit": 8,
+      "units": [
+        8,
+        9,
+        10,
+        11
+      ],
+      "evaluable": true,
+      "accuracy": 0.3993,
+      "tp": 963,
+      "tn": 107,
+      "fp": 1609,
+      "fn": 1,
+      "recall_fallo": 0.999,
+      "precision_fallo": 0.3744,
+      "coste": 1614.0,
+      "mae_rul": 193.905,
+      "pr_auc": 0.4023,
+      "pr_auc_base": 0.3597,
+      "roc_auc": 0.5837,
+      "lead_time_days": 22.4,
+      "lead_time_days_min": 5.96,
+      "maquinas_sin_aviso": 0,
+      "descripcion": "4th_test (4 rod., 1 roto/s)"
+    }
+  ]
+}
