@@ -204,3 +204,46 @@ donde el modelo tiene algo que decir.**
 > **simulado**: no tiene ruido de contador ni comportamiento humano irregular. Ese 90 %
 > mide la predecibilidad de una simulación, no la de una cartera real. **El número que
 > hay que llevarse a un contrato es el 73 % de BDG2**, que son edificios medidos.
+
+## Detección de desperdicio aversa a falsos negativos (2026-08-30)
+
+Decisión: **concentrarse en consumo y minimizar falsos negativos**. En este bloque un
+falso negativo es **un episodio real de desperdicio que no se marca** — dinero que se
+escapa. El detector anterior usaba un umbral fijo de 2σ, un número puesto a ojo y, peor,
+**sin forma de medir cuántos episodios se le escapaban**: estos datasets no traen
+etiqueta de desperdicio.
+
+**Cómo se mide ahora el recall sin etiquetas.** Se inyectan episodios sintéticos de
+magnitud y duración conocidas en los residuos reales del previsor (real − esperado), y se
+cuenta cuántos captura. Un episodio es un exceso positivo **sostenido**: `magnitud_sigma`
+desviaciones del residuo durante `duracion_h` horas seguidas. Las ventanas no inyectadas
+miden la tasa de falsa alarma. Es la misma disciplina del resto del proyecto —ninguna
+métrica sin su base— aplicada a un detector no supervisado.
+
+**Cómo se elige el punto de operación (averso a FN).** Sobre un barrido umbral × antirrebote
+se toma **el umbral más exigente que aún capture el `objetivo_recall` (95 %)** de los
+episodios, minimizando la falsa alarma sujeta a ese recall; si ninguno llega, se
+**maximiza el recall** (mínimo FN) aceptando la falsa alarma que traiga. Es el criterio
+del run-to-failure (`stage_rtf.py`), ahora sobre consumo. En `config.yaml → consumo.desperdicio`.
+
+**El coste honesto de minimizar FN (medido sobre ruido gaussiano, el caso más duro).**
+Garantizar el recall obliga a bajar el umbral, y eso sube la falsa alarma. La magnitud de
+episodio a la que uno se compromete es el dial FN↔FP:
+
+| Compromiso (capturar episodios de) | Umbral elegido | Falsa alarma | Recall |
+|---|---|---|---|
+| **3σ** (default, lo más sensible) | 1,25σ | **21 %** | 0,974 |
+| 4σ | 1,75σ | 0,2 % | 0,965 |
+| 5σ | 2,5σ | 0 % | 0,983 |
+| 6σ | 3,0σ | 0 % | 1,000 |
+
+El salto de 3σ a 4σ tira la falsa alarma del 21 % al 0,2 % perdiendo solo un punto de
+recall. **El default es 3σ porque la instrucción es minimizar FN**, pero ese 21 % sobre
+ruido puro es alto para operar; el número real dependerá de la estructura de los residuos
+de cada cartera, y `magnitud_episodio_sigma` es la palanca que el negocio sube si la
+falsa alarma molesta. Es una decisión de negocio (coste de un desperdicio no visto frente
+al de una inspección de más), no del modelo — como el `fn_weight` del bloque predictivo.
+
+El informe (`artifacts/consumo_<dataset>.json`) incluye `recall`, `falsos_negativos`,
+`tasa_falsa_alarma`, el `punto_operacion` elegido, la `detectabilidad_por_magnitud`
+(recall a 2/3/4/6σ) y el `barrido` completo, para que la decisión sea visible.

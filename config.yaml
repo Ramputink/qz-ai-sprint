@@ -54,7 +54,35 @@ datasets:
   #   - nab
   #   - smd
 
-# Objetivo del modelo predictivo (define el éxito).
+# ===========================================================================
+# CONSUMO ELÉCTRICO — LÍNEA PRIORITARIA (decisión 2026-08-30).
+# Es donde hay señal aprovechable (skill +0,48 sobre la base ingenua, 73 % de
+# edificios acreditables ASHRAE). El bloque predictivo queda en segundo plano
+# hasta tener más eventos de fallo (XJTU-SY/FEMTO/Paderborn) — ver docs/07.
+# ===========================================================================
+consumo:
+  dataset_principal: building_data_genome_2  # edificios MEDIDOS: el número que va a un contrato
+  pasos: 3000
+  perdida: l1               # L1 ganó en BDG2 (skill +0,4798); ver docs/02
+  nilm: true
+
+  # DETECCIÓN DE DESPERDICIO — AVERSA A FALSOS NEGATIVOS.
+  # Un "falso negativo" aquí es un episodio real de desperdicio que NO se marca:
+  # dinero que se escapa. Estos datasets no traen etiqueta de desperdicio, así que
+  # el recall se mide inyectando episodios sintéticos de magnitud y duración
+  # conocidas en los residuos reales del previsor (real − esperado). Se elige el
+  # umbral más exigente que aún capture el `objetivo_recall` de esos episodios, y
+  # si ninguno llega, se maximiza el recall (mínimo FN). Es el mismo criterio
+  # averso a FN del run-to-failure, ahora sobre consumo.
+  desperdicio:
+    objetivo_recall: 0.95          # capturar ≥95 % de los episodios reales de desperdicio
+    magnitud_episodio_sigma: 3.0   # tamaño del episodio que se garantiza (en σ del residuo)
+    duracion_episodio_h: 3         # horas consecutivas mínimas (un pico aislado es ruido)
+    fn_weight: 5.0                 # coste de un desperdicio no detectado vs una falsa alarma
+    umbrales_sigma: [1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
+    min_consec_h: [2, 3, 4, 6]
+
+# Objetivo del modelo predictivo (SEGUNDO PLANO — define el éxito si se retoma).
 target:
   lead_time_days: 10        # anticipación mínima de aviso de fallo
   min_accuracy: 0.90        # accuracy mínima objetivo

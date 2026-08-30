@@ -440,16 +440,140 @@ def entrenar_nilm(data_dir: Path, key: str = "ampds2", ventana: int = 599,
     return {"total": total, "por_aparato": por_aparato}
 
 
-# =====================  desperdicio  =========================================
-def detectar_desperdicio(tarea: TareaPrevision, modelo, umbral_sigma: float = 2.0,
-                         n_lotes: int = 40) -> dict[str, Any]:
-    """Consumo por encima del esperado dadas hora, dia y clima.
+# =====================  desperdicio (averso a falsos negativos)  =============
+def _dispara(R: np.ndarray, umbral_kwh: float, min_consec: int) -> np.ndarray:
+    """¿Marca cada ventana? Exceso positivo SOSTENIDO >= min_consec horas seguidas.
 
-    Se mira el residuo (real - previsto) y se marcan los tramos donde es
-    POSITIVO y SOSTENIDO: un pico aislado es ruido de medida, pero varias horas
-    seguidas consumiendo de mas es un equipo encendido que no deberia estarlo o una
-    consigna mal puesta. Solo cuenta el exceso: consumir de menos no es un problema.
+    Un pico aislado es ruido de medida; varias horas seguidas consumiendo de mas
+    es un equipo encendido que no deberia, una consigna mal puesta o degradacion.
+    Solo cuenta el exceso: consumir de menos no es un problema.
     """
+    exceso = R > umbral_kwh
+    disp = np.zeros(len(R), dtype=bool)
+    for k in range(R.shape[1] - min_consec + 1):
+        run = exceso[:, k].copy()
+        for j in range(1, min_consec):
+            run &= exceso[:, k + j]
+        disp |= run
+    return disp
+
+
+def _inyectar_episodios(R: np.ndarray, magnitud_sigma: float, duracion_h: int,
+                        frac_pos: float, sigma: float, rng) -> tuple[np.ndarray, np.ndarray]:
+    """Inyecta episodios de desperdicio en una copia de los residuos.
+
+    Un EPISODIO de desperdicio es un exceso positivo sostenido: durante
+    `duracion_h` horas consecutivas el consumo real supera al esperado en
+    `magnitud_sigma` desviaciones del residuo. Es la definicion operativa de lo
+    que el detector DEBE capturar. Las ventanas no inyectadas (limpias) no se
+    tocan: miden la tasa de falsa alarma. Devuelve (R_inyectado, es_positivo).
+    """
+    N, H = R.shape
+    Rin = R.copy()
+    es_pos = np.zeros(N, dtype=bool)
+    n_pos = int(N * frac_pos)
+    if n_pos and N:
+        idx = rng.choice(N, size=n_pos, replace=False)
+        dur = min(duracion_h, H)
+        for i in idx:
+            ini = int(rng.integers(0, H - dur + 1))
+            Rin[i, ini:ini + dur] += magnitud_sigma * sigma
+            es_pos[i] = True
+    return Rin, es_pos
+
+
+def evaluar_desperdicio(residuos: np.ndarray, *, objetivo_recall: float = 0.95,
+                        magnitud_episodio_sigma: float = 3.0, duracion_episodio_h: int = 3,
+                        fn_weight: float = 5.0,
+                        umbrales_sigma=(1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0),
+                        min_consec_h=(2, 3, 4, 6), seed: int = 0) -> dict[str, Any]:
+    """Punto de operacion del detector de desperdicio, AVERSO A FALSOS NEGATIVOS.
+
+    Estos datasets no traen etiqueta de desperdicio, asi que el recall (1 - FN) no
+    se puede medir contra un test etiquetado. Se mide inyectando episodios
+    sinteticos de magnitud y duracion conocidas en residuos reales, y contando
+    cuantos captura el detector. Sobre ese barrido umbral x antirrebote se elige:
+
+      1. el umbral MAS EXIGENTE que aun capture el `objetivo_recall` de los
+         episodios (minima falsa alarma sujeta a recall garantizado), y
+      2. si NINGUNO llega al objetivo, el de mayor recall (minimo FN), aceptando
+         la falsa alarma que traiga.
+
+    Funcion pura (solo numpy): testeable sin GPU ni datos. `residuos` es (N, H)
+    en kWh reales (real - esperado del previsor sobre el tramo de test).
+    """
+    R = np.asarray(residuos, float)
+    sigma = float(R.std()) or 1e-9
+    rng = np.random.default_rng(seed)
+    Rin, es_pos = _inyectar_episodios(R, magnitud_episodio_sigma, duracion_episodio_h,
+                                      0.5, sigma, rng)
+    pos, neg = Rin[es_pos], Rin[~es_pos]
+
+    barrido = []
+    for us in umbrales_sigma:
+        thr = us * sigma
+        for mc in min_consec_h:
+            det_pos = _dispara(pos, thr, mc) if len(pos) else np.zeros(0, bool)
+            det_neg = _dispara(neg, thr, mc) if len(neg) else np.zeros(0, bool)
+            recall = float(det_pos.mean()) if len(pos) else 0.0
+            fa = float(det_neg.mean()) if len(neg) else 0.0
+            fn = int((~det_pos).sum())
+            coste = fa * len(neg) + fn_weight * fn         # coste averso a FN
+            barrido.append({"umbral_sigma": us, "min_consec_h": mc,
+                            "recall": round(recall, 4), "falsa_alarma": round(fa, 4),
+                            "fn": fn, "coste": round(coste, 2),
+                            "umbral_kwh": round(thr, 3)})
+
+    cumplen = [e for e in barrido if e["recall"] >= objetivo_recall]
+    if cumplen:
+        # el mas exigente (menor falsa alarma) que aun garantiza el recall
+        op = min(cumplen, key=lambda e: (e["falsa_alarma"], -e["recall"], -e["umbral_sigma"]))
+        cumple = True
+    else:
+        # ninguno llega: maxima captura (minimo FN)
+        op = max(barrido, key=lambda e: (e["recall"], -e["falsa_alarma"]))
+        cumple = False
+
+    # detectabilidad: recall del punto elegido frente a episodios de varios tamanos
+    detect = {}
+    for mag in (2.0, 3.0, 4.0, 6.0):
+        Rc, esc = _inyectar_episodios(R, mag, duracion_episodio_h, 0.5, sigma,
+                                      np.random.default_rng(seed + 1))
+        d = _dispara(Rc[esc], op["umbral_sigma"] * sigma, op["min_consec_h"])
+        detect[f"{mag:.0f}sigma"] = round(float(d.mean()), 4) if len(d) else None
+
+    # el punto elegido, aplicado a los residuos REALES (sin inyectar)
+    disp_real = _dispara(R, op["umbral_sigma"] * sigma, op["min_consec_h"])
+    energia_exceso = float(R[R > 0].sum())
+    return {
+        "metodo": ("recall medido por inyeccion de episodios sinteticos: estos datos "
+                   "no traen etiqueta real de desperdicio"),
+        "criterio": "averso a falsos negativos",
+        "objetivo_recall": objetivo_recall,
+        "cumple_objetivo_recall": cumple,
+        "episodio_objetivo": {"magnitud_sigma": magnitud_episodio_sigma,
+                              "duracion_h": duracion_episodio_h},
+        "sigma_residuo_kwh": round(sigma, 3),
+        "punto_operacion": {"umbral_sigma": op["umbral_sigma"],
+                            "umbral_kwh": op["umbral_kwh"],
+                            "min_consec_h": op["min_consec_h"]},
+        "recall": op["recall"],
+        "falsos_negativos": op["fn"],
+        "tasa_falsa_alarma": op["falsa_alarma"],
+        "detectabilidad_por_magnitud": detect,
+        "ventanas_reales_analizadas": int(len(R)),
+        "ventanas_reales_con_desperdicio": int(disp_real.sum()),
+        "pct_ventanas_reales_con_desperdicio": round(100 * float(disp_real.mean()), 2),
+        "energia_por_encima_de_lo_esperado_kwh": round(energia_exceso, 1),
+        "barrido": barrido,
+        "nota": (f"se elige el umbral mas exigente que aun capture el "
+                 f"{objetivo_recall:.0%} de los episodios de >= {magnitud_episodio_sigma:g}sigma "
+                 f"sostenidos >= {duracion_episodio_h} h; si ninguno llega, se maximiza el recall")}
+
+
+def detectar_desperdicio(tarea: TareaPrevision, modelo, n_lotes: int = 40,
+                         **kw) -> dict[str, Any]:
+    """Residuos reales del previsor sobre el tramo test -> `evaluar_desperdicio`."""
     import torch
 
     modelo.eval()
@@ -461,21 +585,7 @@ def detectar_desperdicio(tarea: TareaPrevision, modelo, umbral_sigma: float = 2.
             r = (tarea.desnormalizar(fut, s) - tarea.desnormalizar(p, s)).cpu().numpy()
             res.append(r)
     R = np.concatenate(res)                                    # (N, H) en kWh
-    sigma = float(R.std()) or 1e-9
-    exceso = R > umbral_sigma * sigma
-    # sostenido = al menos 3 horas consecutivas de exceso dentro del horizonte
-    sostenido = np.zeros(len(R), dtype=bool)
-    for k in range(R.shape[1] - 2):
-        sostenido |= exceso[:, k] & exceso[:, k + 1] & exceso[:, k + 2]
-    energia_exceso = float(R[R > 0].sum())
-    return {"sigma_residuo_kwh": round(sigma, 3),
-            "umbral_kwh": round(umbral_sigma * sigma, 3),
-            "ventanas_analizadas": int(len(R)),
-            "ventanas_con_exceso_sostenido": int(sostenido.sum()),
-            "pct_ventanas_con_exceso": round(100 * float(sostenido.mean()), 2),
-            "energia_por_encima_de_lo_esperado_kwh": round(energia_exceso, 1),
-            "nota": "exceso sostenido = 3+ horas seguidas por encima del umbral; "
-                    "un pico aislado es ruido de medida, no desperdicio"}
+    return evaluar_desperdicio(R, **kw)
 
 
 # =====================  linea base contrafactual (ahorro)  ===================
@@ -535,7 +645,24 @@ def correr_todo(cfg: dict[str, Any], base_dir: Path, logger, pv=None,
 
     r = entrenar_previsor(tarea, pasos=pasos, perdida=perdida, logger=logger, cb=cb)
     informe["prevision"] = r["metricas"]
-    informe["desperdicio"] = detectar_desperdicio(tarea, r["modelo"])
+
+    # Detección de desperdicio AVERSA A FALSOS NEGATIVOS (parámetros de config.yaml).
+    dcfg = (cfg.get("consumo") or {}).get("desperdicio") or {}
+    informe["desperdicio"] = detectar_desperdicio(
+        tarea, r["modelo"],
+        objetivo_recall=dcfg.get("objetivo_recall", 0.95),
+        magnitud_episodio_sigma=dcfg.get("magnitud_episodio_sigma", 3.0),
+        duracion_episodio_h=dcfg.get("duracion_episodio_h", 3),
+        fn_weight=dcfg.get("fn_weight", 5.0),
+        umbrales_sigma=tuple(dcfg.get("umbrales_sigma", (1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0))),
+        min_consec_h=tuple(dcfg.get("min_consec_h", (2, 3, 4, 6))),
+        seed=(cfg.get("run") or {}).get("seed", 0))
+    if logger:
+        d = informe["desperdicio"]
+        logger.info("desperdicio", recall=d["recall"], fn=d["falsos_negativos"],
+                    falsa_alarma=d["tasa_falsa_alarma"],
+                    cumple_objetivo=d["cumple_objetivo_recall"],
+                    punto=d["punto_operacion"])
     informe["linea_base_ahorro"] = medir_ahorro(tarea, r["modelo"])
 
     if nilm:

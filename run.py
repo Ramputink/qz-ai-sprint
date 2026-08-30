@@ -72,14 +72,17 @@ def main(argv: list[str] | None = None) -> int:
                     help="CONSUMO ELÉCTRICO: previsión de carga + detección de desperdicio + "
                          "línea base contrafactual de ahorro (+ NILM). Es el bloque que "
                          "responde a si se puede optimizar el consumo.")
-    ap.add_argument("--consumo-dataset", default="building_data_genome_2",
+    ap.add_argument("--consumo-dataset", default=None,
                     help="dataset de consumo (building_data_genome_2 | "
-                         "electricity_load_diagrams | steel_industry_energy)")
-    ap.add_argument("--consumo-pasos", type=int, default=3000, help="pasos de entrenamiento")
+                         "electricity_load_diagrams | steel_industry_energy). "
+                         "Por defecto: consumo.dataset_principal de config.yaml")
+    ap.add_argument("--consumo-pasos", type=int, default=None,
+                    help="pasos de entrenamiento (por defecto: consumo.pasos de config.yaml)")
     ap.add_argument("--sin-nilm", action="store_true", help="omitir la desagregación NILM")
-    ap.add_argument("--consumo-perdida", default="huber", choices=["huber", "l1", "l2"],
+    ap.add_argument("--consumo-perdida", default=None, choices=["huber", "l1", "l2"],
                     help="pérdida del previsor. L1 optimiza la mediana y empeora el CV(RMSE), "
-                         "que es lo que decide la acreditación ASHRAE G14")
+                         "que es lo que decide la acreditación ASHRAE G14. "
+                         "Por defecto: consumo.perdida de config.yaml")
     ap.add_argument("--feature-slice", metavar="A:B",
                     help="usar solo las columnas de features [A,B) — para ablaciones")
     a = ap.parse_args(argv)
@@ -154,12 +157,16 @@ def main(argv: list[str] | None = None) -> int:
         from src.logging_utils import RunLogger
         from src.processview import ProcessView
         p = cfg["paths"]
+        ccfg = cfg.get("consumo") or {}
+        dataset = a.consumo_dataset or ccfg.get("dataset_principal", "building_data_genome_2")
+        pasos = a.consumo_pasos or ccfg.get("pasos", 3000)
+        perdida = a.consumo_perdida or ccfg.get("perdida", "huber")
+        nilm = ccfg.get("nilm", True) and not a.sin_nilm
         logger = RunLogger(HERE / p["logs_dir"])
         pv = ProcessView(HERE / p["processview_dir"],
                          refresh_sec=cfg["run"].get("processview_refresh_sec", 10))
-        inf = correr_todo(cfg, HERE, logger, pv, dataset=a.consumo_dataset,
-                          pasos=a.consumo_pasos, nilm=not a.sin_nilm,
-                          perdida=a.consumo_perdida)
+        inf = correr_todo(cfg, HERE, logger, pv, dataset=dataset,
+                          pasos=pasos, nilm=nilm, perdida=perdida)
         f = inf["prevision"]
         print()
         print("=== CONSUMO ELÉCTRICO ===")
@@ -168,7 +175,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  SKILL vs base: {f['skill_vs_ingenua']:+.4f}   <- 0 = empatar con no hacer nada")
         print(f"  CV(RMSE)     : {f['cv_rmse_pct']} %   ASHRAE G14 (<25%): {f['cumple_ashrae_g14']}")
         d = inf["desperdicio"]
-        print(f"  desperdicio  : {d['pct_ventanas_con_exceso']} % de ventanas con exceso sostenido")
+        op = d["punto_operacion"]
+        print(f"  DESPERDICIO (averso a FN):")
+        print(f"     recall {d['recall']:.3f} (objetivo {d['objetivo_recall']:.0%}, "
+              f"cumple: {d['cumple_objetivo_recall']}) · FN {d['falsos_negativos']} · "
+              f"falsa alarma {d['tasa_falsa_alarma']:.3f}")
+        print(f"     punto operación: umbral {op['umbral_sigma']}σ ({op['umbral_kwh']} kWh) · "
+              f"{op['min_consec_h']} h consecutivas")
+        print(f"     detectabilidad por magnitud: {d['detectabilidad_por_magnitud']}")
+        print(f"     desperdicio real: {d['pct_ventanas_reales_con_desperdicio']} % de ventanas "
+              f"({d['energia_por_encima_de_lo_esperado_kwh']} kWh por encima de lo esperado)")
         b = inf["linea_base_ahorro"]
         print(f"  línea base   : ahorro aparente {b['ahorro_aparente_pct']} % (sin intervención "
               f"debería rondar 0) · NMBE {b['nmbe_pct']} %")
